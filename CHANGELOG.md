@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1] - 2026-11-14
+
+- Fixed: OpenCode Go weekly and monthly limit forecasts said "stays near X%" on a new install. They now
+  work out the pace from when the window started, like the 5-hour window.
+- Limit forecasts no longer claim usage will stay flat when the readings don't go back to the window's start.
+- Added a favicon and home-screen icon.
+
 ## [0.1.0] - 2026-11-14
 
 First public release.
