@@ -1,66 +1,109 @@
 # AI Usage Tracker
 
-A small self-hosted dashboard for keeping an eye on AI usage across accounts:
+**One self-hosted dashboard for all your AI subscriptions and API bills.** See how close you are to your Claude
+and ChatGPT limits, what your API keys cost per day, and when you'll run out, without opening five vendor consoles.
 
-- **API accounts (admin key)**: daily token usage by model and daily cost, from the
-  Anthropic Admin API and the OpenAI organization Usage/Costs APIs.
-- **OpenRouter**: daily spend, per-model history (with a management key), key limits and credit balance.
-- **Subscriptions (OAuth)**: rate-limit window usage (5-hour, weekly, …) for
-  **Claude Pro/Max** and **ChatGPT Plus/Pro (Codex)**, connected with an OAuth login.
-- **OpenCode Go / Console**: the Go plan's 5-hour, weekly and monthly limits, the plan name, and Console
-  spend budgets (which cover Zen pay-as-you-go spend), via the OpenCode Console sign-in or an API key.
-- **OpenCode (local sessions)**: usage from your local OpenCode sessions (every provider it talks to: OpenCode Zen/Go,
-  OpenRouter, …), pushed to the tracker by a small client command.
+![Dashboard](docs/screenshots/dashboard.png)
 
-One Go binary, SQLite storage, a server-rendered UI that works without JavaScript, and credentials encrypted at rest.
+- **Subscription limits**: 5-hour and weekly windows for **Claude Pro/Max**, **ChatGPT Plus/Pro (Codex)** and
+  **OpenCode Go**, with history and a forecast: *"At this pace: hits 100% in about 50m, before it resets."*
+- **Pay-as-you-go spend**: daily cost and tokens per model for the **Anthropic** and **OpenAI** APIs,
+  **OpenRouter** (spend, key limits, credit balance), **OpenCode** Console budgets and local OpenCode sessions.
+- **Forecasts**: burn rate, projected month total, and when a balance or key limit runs out. Limit forecasts work
+  from the first check, and API accounts backfill 30 days of history when you add them.
+- **Multi-user**: admin and read-only viewer accounts, sessions, and read-only API tokens for Home Assistant
+  or a status bar.
+- **19 editor themes**: Dracula, One Dark, Catppuccin, Gruvbox, Nord, Tokyo Night, Monokai, Solarized,
+  GitHub and Night Owl, in dark and light versions, plus follow-system and a compact layout.
+- **Small and private**: one Go binary or a ~30 MB distroless image, SQLite, credentials encrypted at rest,
+  no telemetry, no external requests except to the providers you add. Works without JavaScript.
 
-The UI has a sign-in page with admin and read-only viewer accounts, 19 editor themes (Dracula, Catppuccin, Gruvbox,
-Nord, Tokyo Night, … in dark and light versions), spend forecasts ("balance lasts to ~Dec 21") and limit
-forecasts ("hits 100% in about 50m, before it resets"), and a Settings page for alerts, polling, users and API tokens.
+| | | |
+|---|---|---|
+| ![Account with forecast](docs/screenshots/account-api.png) | ![Subscription limits](docs/screenshots/account-subscription.png) | ![Themes](docs/screenshots/themes.png) |
+| Spend, forecast and per-model usage | Limit windows over 30 days | Themes |
 
-## Run
+## Quick start
 
-```sh
-cp .env.example .env    # optional: set TRACKER_PASSWORD to create the admin up front
-docker compose up -d --build
-# → http://localhost:8080
+### Docker Compose
+
+```yaml
+services:
+  ai-usage-tracker:
+    image: ghcr.io/dukko/ai-usage-tracker:latest
+    container_name: ai-usage-tracker
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - tracker-data:/data
+
+volumes:
+  tracker-data:
 ```
 
-Or without Docker: `go run .`
+```sh
+docker compose up -d
+docker logs ai-usage-tracker   # copy the setup_code
+```
+
+Open <http://localhost:8080>, enter the setup code, and create your admin account. Then **Accounts → Add account**.
+
+### Docker
+
+```sh
+docker run -d --name ai-usage-tracker -p 127.0.0.1:8080:8080 -v ai-usage-data:/data ghcr.io/dukko/ai-usage-tracker:latest
+```
+
+### Binary
+
+Download a release for Linux, macOS or Windows (amd64/arm64) from the
+[releases page](https://github.com/Dukko/ai-usage-tracker/releases), or `go install github.com/Dukko/ai-usage-tracker@latest`.
+
+```sh
+./ai-usage-tracker            # data goes to ./data, override with TRACKER_DATA_DIR
+```
 
 ### First sign-in
 
-- If `TRACKER_PASSWORD` is set and there are no users yet, an admin called `admin` (or `TRACKER_USERNAME`) is
-  created with that password. Changing the variable later does nothing: change passwords in Settings.
-- Otherwise the server prints a one-time **setup code** to its log (`docker logs ai-usage-tracker`). The first
-  visit asks for that code before it lets anyone create the admin account, so a fresh install exposed to the
-  internet can't be claimed by someone else.
+- The server prints a one-time **setup code** to its log at first start. The first visit asks for that code
+  before it lets anyone create the admin account, so a fresh install that's already reachable from the internet
+  can't be claimed by someone else.
+- Or set `TRACKER_PASSWORD` (and optionally `TRACKER_USERNAME`, default `admin`) to create the admin up front.
+  It only applies while there are no users; after that, change passwords in Settings.
 
-Admins can add **viewer** users in Settings. Viewers see the dashboard and account pages and can change their own
-theme and password, but can't add, refresh or delete accounts or change site settings.
+Admins can add **viewer** users in Settings. Viewers see the dashboard and account pages and can change their
+own theme and password, but can't add, refresh or delete accounts or change site settings.
 
-### Exposing it publicly (Cloudflare Tunnel, reverse proxy)
+### Exposing it publicly (Cloudflare Tunnel, Caddy, Traefik, …)
 
 - Stored API keys and OAuth tokens are never sent to the browser; pages only show usage numbers.
-- Sign-in is rate limited per IP: after 5 wrong passwords that address waits 15 minutes. Behind a proxy every
-  request seems to come from the proxy, so set `TRACKER_TRUST_PROXY=true` so the real client IP
-  (`CF-Connecting-IP`, `X-Real-IP` or `X-Forwarded-For`) is used. Only set it when the port isn't reachable
+- Set `TRACKER_TRUST_PROXY=true` so sign-in rate limiting sees the real client IP (`CF-Connecting-IP`,
+  `X-Real-IP` or `X-Forwarded-For`) instead of the proxy's. Only set it when the port isn't reachable
   directly, since otherwise clients could fake those headers.
-- Set `TRACKER_PUBLIC_URL=https://…` so session cookies are marked `Secure`.
-- Pages send a strict Content-Security-Policy and can't be framed. Forms are protected against cross-site requests.
+- Set `TRACKER_PUBLIC_URL=https://usage.example.com` so session cookies are marked `Secure`.
+- After 5 wrong passwords from an address, sign-in from it pauses for 15 minutes. Pages send a strict
+  Content-Security-Policy, can't be framed, and forms reject cross-site requests. See [SECURITY.md](SECURITY.md).
+
+### Updating and backups
+
+`docker compose pull && docker compose up -d`. Everything lives in the data volume: `tracker.db` and
+`secret.key`. Back up both, and keep them private: together they decrypt your stored credentials.
 
 ## Configuration
+
+Everything else is in the Settings page. These environment variables cover start-up:
 
 | Env var | Default | |
 |---|---|---|
 | `TRACKER_ADDR` | `:8080` | Listen address |
-| `TRACKER_DATA_DIR` | `./data` | SQLite DB + generated encryption key |
+| `TRACKER_DATA_DIR` | `./data` (`/data` in Docker) | SQLite database and generated encryption key |
 | `TRACKER_PASSWORD` | *(none)* | Creates the first admin with this password if there are no users yet |
 | `TRACKER_USERNAME` | `admin` | Username for that first admin |
-| `TRACKER_POLL_INTERVAL` | `10m` | How often every account is polled (min `1m`). Once an admin saves an interval in Settings, that wins. |
+| `TRACKER_POLL_INTERVAL` | `10m` | How often accounts are checked (min `1m`). Once an admin saves an interval in Settings, that wins. |
 | `TRACKER_PUBLIC_URL` | *(from request)* | Public base URL: used in push setup instructions, and `https://` marks cookies `Secure` |
-| `TRACKER_TRUST_PROXY` | `false` | Trust `CF-Connecting-IP` / `X-Forwarded-*` from a reverse proxy (for rate limiting and HTTPS detection) |
-| `TRACKER_SECRET_KEY` | *(none)* | Passphrase for encrypting credentials. If unset, a random key is written to `$TRACKER_DATA_DIR/secret.key`. Back that file up with the DB. |
+| `TRACKER_TRUST_PROXY` | `false` | Trust `CF-Connecting-IP` / `X-Forwarded-*` from a reverse proxy |
+| `TRACKER_SECRET_KEY` | *(none)* | Passphrase for encrypting credentials. If unset, a random key is written to `$TRACKER_DATA_DIR/secret.key`. |
 
 ## Adding accounts
 
@@ -125,7 +168,7 @@ in an OpenRouter account, so don't add those two totals together.
 
 ### Subscriptions (OAuth)
 
-Click **Connect with OAuth**, open the sign-in page, approve access, and paste back:
+Click **Connect with sign-in**, open the sign-in page, approve access, and paste back:
 
 - **Claude**: the authentication code Claude shows you.
 - **ChatGPT**: you'll land on a `localhost:1455/...` page that fails to load. That's expected:
@@ -140,6 +183,22 @@ A separate OAuth login avoids that.
 > Claude Code and the Codex CLI use. These are **not documented public APIs**. They may change or break, and
 > the provider's terms may not cover this use. Endpoint URLs can be overridden with env vars
 > (`CLAUDE_OAUTH_TOKEN_URL`, `CLAUDE_USAGE_URL`, `CHATGPT_USAGE_URL`, … see `internal/providers/*_sub.go`).
+
+## How forecasts work
+
+All forecasts are straight-line estimates, shown with the assumption they use.
+
+- **Limits**: the window's start is its reset time minus its length (5 hours, 7 days), and usage was 0% then,
+  so percent used ÷ time since the start is the average pace. Projecting that to the reset gives
+  *"about 78% by the reset"* or *"hits 100% in about 50m, 22m before it resets"*. This works from the first
+  check, without history.
+- **Spend**: the average daily cost over the last 7 or 30 days (your choice on the account page), projected
+  14 days ahead on the chart, to the end of the month, and against the credit balance and key limit.
+  Anthropic, OpenAI and OpenRouter (management key) return 30 days of history on the first check, and the
+  OpenCode push sends 30 days too, so spend forecasts are useful right after you add an account.
+
+Neither the Claude nor the ChatGPT usage endpoint returns past limit percentages, so the limit-history charts
+start when you add the account.
 
 ## JSON API
 
@@ -156,20 +215,28 @@ Tokens only open this endpoint, not the UI.
 `GET /healthz` is unauthenticated, for container health checks. `POST /api/ingest` is used by push clients
 and authenticates with its own push token.
 
-## Layout
+## Development
+
+```sh
+go run .          # http://localhost:8080, setup code in the log
+go test ./...
+```
 
 ```
-main.go                     config + wiring
+main.go                     config, wiring, CLI commands (push, healthcheck, version)
 internal/providers/         one file per provider (anthropic_api, openai_api, openrouter, claude_sub, chatgpt_sub,
                             opencode_console, opencode)
-internal/push/              push client: local data readers (OpenCode) + /api/ingest sender
+internal/push/              push client: local data readers (OpenCode) and the /api/ingest sender
 internal/poller/            periodic polling, token-refresh persistence
-internal/store/             SQLite schema + queries
+internal/store/             SQLite schema and queries
 internal/secrets/           AES-GCM credential encryption
 internal/web/               handlers, sign-in and sessions, settings, themes, forecasts, templates and CSS
-                            (embedded in the binary, including the Inter and Space Grotesk fonts, both SIL OFL)
+                            (embedded in the binary)
 ```
 
-Adding a provider means implementing `providers.Provider` (plus any of `OAuthProvider`, `DeviceProvider`,
-`APIKeyProvider` or `PushProvider`)
-and calling `register` in `init()`.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for adding a provider.
+
+## License
+
+[MIT](LICENSE). The bundled Inter and Space Grotesk fonts are under the SIL Open Font License.
+This project isn't affiliated with Anthropic, OpenAI, OpenRouter or OpenCode.

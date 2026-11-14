@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"time"
 
-	"ai-usage-tracker/internal/core"
+	"github.com/Dukko/ai-usage-tracker/internal/core"
 )
 
 // openaiAPI polls the OpenAI organization Usage and Costs APIs.

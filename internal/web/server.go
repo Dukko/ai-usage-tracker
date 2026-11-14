@@ -23,12 +23,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"ai-usage-tracker/internal/core"
-	"ai-usage-tracker/internal/poller"
-	"ai-usage-tracker/internal/providers"
-	"ai-usage-tracker/internal/push"
-	"ai-usage-tracker/internal/secrets"
-	"ai-usage-tracker/internal/store"
+	"github.com/Dukko/ai-usage-tracker/internal/core"
+	"github.com/Dukko/ai-usage-tracker/internal/poller"
+	"github.com/Dukko/ai-usage-tracker/internal/providers"
+	"github.com/Dukko/ai-usage-tracker/internal/push"
+	"github.com/Dukko/ai-usage-tracker/internal/secrets"
+	"github.com/Dukko/ai-usage-tracker/internal/store"
 )
 
 //go:embed templates static

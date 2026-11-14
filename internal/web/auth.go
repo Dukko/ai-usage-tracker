@@ -19,7 +19,7 @@ import (
 	"sync"
 	"time"
 
-	"ai-usage-tracker/internal/store"
+	"github.com/Dukko/ai-usage-tracker/internal/store"
 )
 
 const (

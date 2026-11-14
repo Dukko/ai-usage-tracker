@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"ai-usage-tracker/internal/core"
+	"github.com/Dukko/ai-usage-tracker/internal/core"
 )
 
 // PushProvider is fed by a client that POSTs usage to /api/ingest instead of

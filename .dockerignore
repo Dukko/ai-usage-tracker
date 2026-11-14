@@ -1,0 +1,9 @@
+.git
+.github
+data
+.env
+docs
+*.md
+!README.md
+ai-usage-tracker
+dist

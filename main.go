@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -13,10 +14,10 @@ import (
 	"syscall"
 	"time"
 
-	"ai-usage-tracker/internal/poller"
-	"ai-usage-tracker/internal/secrets"
-	"ai-usage-tracker/internal/store"
-	"ai-usage-tracker/internal/web"
+	"github.com/Dukko/ai-usage-tracker/internal/poller"
+	"github.com/Dukko/ai-usage-tracker/internal/secrets"
+	"github.com/Dukko/ai-usage-tracker/internal/store"
+	"github.com/Dukko/ai-usage-tracker/internal/web"
 )
 
 func env(key, def string) string {
@@ -26,13 +27,43 @@ func env(key, def string) string {
 	return def
 }
 
+// version is set at build time: -ldflags "-X main.version=v1.2.3".
+var version = "dev"
+
+const usage = `ai-usage-tracker: self-hosted dashboard for AI subscription limits and API spend.
+
+Usage:
+  ai-usage-tracker                 run the server (configure with TRACKER_* env vars, see README)
+  ai-usage-tracker push <tool>     send local usage to a tracker (run "push -h" for flags)
+  ai-usage-tracker healthcheck     exit 0 if the local server answers /healthz
+  ai-usage-tracker version         print the version
+`
+
 func main() {
-	if len(os.Args) > 1 && os.Args[1] == "push" {
-		if err := runPush(os.Args[2:]); err != nil {
-			fmt.Fprintln(os.Stderr, "push:", err)
-			os.Exit(1)
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "push":
+			if err := runPush(os.Args[2:]); err != nil {
+				fmt.Fprintln(os.Stderr, "push:", err)
+				os.Exit(1)
+			}
+			return
+		case "version", "-version", "--version":
+			fmt.Println("ai-usage-tracker", version)
+			return
+		case "healthcheck":
+			if err := healthcheck(); err != nil {
+				fmt.Fprintln(os.Stderr, "unhealthy:", err)
+				os.Exit(1)
+			}
+			return
+		case "help", "-h", "-help", "--help":
+			fmt.Print(usage)
+			return
+		default:
+			fmt.Fprintf(os.Stderr, "unknown command %q\n\n%s", os.Args[1], usage)
+			os.Exit(2)
 		}
-		return
 	}
 	if err := run(); err != nil {
 		slog.Error("fatal", "err", err)
@@ -88,9 +119,32 @@ func run() error {
 		_ = srv.Shutdown(shutdownCtx)
 	}()
 
-	slog.Info("listening", "addr", addr, "data", dataDir, "poll_interval", interval)
+	slog.Info("listening", "version", version, "addr", addr, "data", dataDir, "poll_interval", interval)
 	if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 		return err
+	}
+	return nil
+}
+
+// healthcheck probes the server's /healthz on the configured port, for
+// container health checks in images without curl or a shell.
+func healthcheck() error {
+	addr := env("TRACKER_ADDR", ":8080")
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return err
+	}
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		host = "127.0.0.1"
+	}
+	c := http.Client{Timeout: 5 * time.Second}
+	resp, err := c.Get("http://" + net.JoinHostPort(host, port) + "/healthz")
+	if err != nil {
+		return err
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("status %d", resp.StatusCode)
 	}
 	return nil
 }

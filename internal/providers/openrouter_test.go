@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"ai-usage-tracker/internal/core"
+	"github.com/Dukko/ai-usage-tracker/internal/core"
 )
 
 func fakeOpenRouter(t *testing.T, mgmt bool) {

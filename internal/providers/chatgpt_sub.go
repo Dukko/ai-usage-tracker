@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"ai-usage-tracker/internal/core"
+	"github.com/Dukko/ai-usage-tracker/internal/core"
 )
 
 // chatgptSub tracks a ChatGPT Plus/Pro subscription's Codex rate-limit windows

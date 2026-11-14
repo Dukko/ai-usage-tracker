@@ -1,6 +1,7 @@
 services:
   ai-usage-tracker:
-    build: .
+    image: ghcr.io/dukko/ai-usage-tracker:latest
+    # build: .   # or build from source
     container_name: ai-usage-tracker
     restart: unless-stopped
     ports:

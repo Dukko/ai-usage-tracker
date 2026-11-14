@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"ai-usage-tracker/internal/core"
+	"github.com/Dukko/ai-usage-tracker/internal/core"
 )
 
 // opencodeConsole tracks an OpenCode Console workspace: the OpenCode Go

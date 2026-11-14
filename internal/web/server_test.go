@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"ai-usage-tracker/internal/core"
-	"ai-usage-tracker/internal/poller"
-	"ai-usage-tracker/internal/secrets"
-	"ai-usage-tracker/internal/store"
+	"github.com/Dukko/ai-usage-tracker/internal/core"
+	"github.com/Dukko/ai-usage-tracker/internal/poller"
+	"github.com/Dukko/ai-usage-tracker/internal/secrets"
+	"github.com/Dukko/ai-usage-tracker/internal/store"
 )
 
 type env struct {
@@ -264,5 +264,30 @@ func TestSafeNext(t *testing.T) {
 		if got := safeNext(in); got != want {
 			t.Errorf("safeNext(%q) = %q", in, got)
 		}
+	}
+}
+
+func TestQuotaForecastFromOneReading(t *testing.T) {
+	lvl := func(p float64) string {
+		if p >= 90 {
+			return "crit"
+		}
+		return "ok"
+	}
+	now := time.Now().Unix()
+	// 5-hour window, 2 hours in, 40% used: 20%/h, so 100% in 3h is exactly at the reset; 50% used would hit it early.
+	one := []store.QuotaSample{{TS: now, UsedPercent: 50, ResetsAt: now + 3*3600}}
+	msg, l := quotaForecast("5h", one, now+3*3600, lvl)
+	if !strings.Contains(msg, "hits 100%") || l != "crit" {
+		t.Errorf("5h at 50%% after 2h: %q %q", msg, l)
+	}
+	// Weekly window, 1 day in, 5% used: about 35% by the reset.
+	one = []store.QuotaSample{{TS: now, UsedPercent: 5, ResetsAt: now + 6*86400}}
+	if msg, _ := quotaForecast("7d opus", one, now+6*86400, lvl); !strings.Contains(msg, "about 35%") {
+		t.Errorf("weekly: %q", msg)
+	}
+	// Unknown window length with one reading: no guess.
+	if msg, _ := quotaForecast("monthly budget", one, now+6*86400, lvl); msg != "" {
+		t.Errorf("unknown window: %q", msg)
 	}
 }

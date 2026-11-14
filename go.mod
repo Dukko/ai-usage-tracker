@@ -1,4 +1,4 @@
-module ai-usage-tracker
+module github.com/Dukko/ai-usage-tracker
 
 go 1.27.4
 

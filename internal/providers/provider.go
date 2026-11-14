@@ -21,7 +21,7 @@ import (
 	"strings"
 	"time"
 
-	"ai-usage-tracker/internal/core"
+	"github.com/Dukko/ai-usage-tracker/internal/core"
 )
 
 const (
@@ -122,7 +122,7 @@ func pkceChallenge(verifier string) string {
 
 var httpClient = &http.Client{Timeout: 30 * time.Second}
 
-const userAgent = "ai-usage-tracker/0.1"
+const userAgent = "github.com/Dukko/ai-usage-tracker/0.1"
 
 type HTTPError struct {
 	Status int

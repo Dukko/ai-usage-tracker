@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"ai-usage-tracker/internal/core"
+	"github.com/Dukko/ai-usage-tracker/internal/core"
 )
 
 // claudeSub tracks a Claude Pro/Max subscription's rate-limit windows using the

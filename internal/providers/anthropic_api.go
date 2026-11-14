@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"time"
 
-	"ai-usage-tracker/internal/core"
+	"github.com/Dukko/ai-usage-tracker/internal/core"
 )
 
 // anthropicAPI polls the Anthropic Admin API usage and cost reports.

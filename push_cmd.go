@@ -12,7 +12,7 @@ import (
 	"syscall"
 	"time"
 
-	"ai-usage-tracker/internal/push"
+	"github.com/Dukko/ai-usage-tracker/internal/push"
 )
 
 const pushUsage = `Usage: ai-usage-tracker push opencode [flags]

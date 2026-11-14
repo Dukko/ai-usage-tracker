@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"ai-usage-tracker/internal/providers"
-	"ai-usage-tracker/internal/store"
+	"github.com/Dukko/ai-usage-tracker/internal/providers"
+	"github.com/Dukko/ai-usage-tracker/internal/store"
 )
 
 type quotaView struct {
@@ -161,7 +161,7 @@ func (s *Server) buildView(a store.Account, o viewOpts) (accountView, error) {
 		for _, h := range hist {
 			qv.Peak = math.Max(qv.Peak, h.UsedPercent)
 		}
-		qv.Forecast, qv.FcLevel = quotaForecast(hist, q.ResetsAt, s.level)
+		qv.Forecast, qv.FcLevel = quotaForecast(q.Window, hist, q.ResetsAt, s.level)
 		if o.detail {
 			qv.Chart = s.windowChart(hist, qv.Label)
 		} else if q.ResetsAt > sparkFrom && len(hist) > 1 {
@@ -211,26 +211,47 @@ func clamp(x, lo, hi float64) float64 { return math.Max(lo, math.Min(hi, x)) }
 
 // ---- forecasts ----
 
+var windowLen = regexp.MustCompile(`^(\d+)([mhd])\b`)
+
+// windowLength parses the duration from window ids like "5h", "7d" or "7d opus".
+func windowLength(window string) (time.Duration, bool) {
+	m := windowLen.FindStringSubmatch(window)
+	if m == nil {
+		return 0, false
+	}
+	n, _ := strconv.Atoi(m[1])
+	unit := map[string]time.Duration{"m": time.Minute, "h": time.Hour, "d": 24 * time.Hour}[m[2]]
+	return time.Duration(n) * unit, n > 0
+}
+
 // quotaForecast extrapolates the average pace since the current window began.
-func quotaForecast(hist []store.QuotaSample, resetsAt int64, level func(float64) string) (string, string) {
-	if len(hist) < 2 {
+//
+// When the window's length is known, its start is reset time minus length and
+// usage was 0% then, so a single reading is enough: no history needed. Otherwise
+// it falls back to the readings recorded during the current window.
+func quotaForecast(window string, hist []store.QuotaSample, resetsAt int64, level func(float64) string) (string, string) {
+	if len(hist) == 0 {
 		return "", ""
 	}
 	last := hist[len(hist)-1]
-	// Samples from the current window share (roughly) its reset time.
 	first := last
-	for i := len(hist) - 1; i >= 0; i-- {
-		h := hist[i]
-		if last.ResetsAt != 0 && math.Abs(float64(h.ResetsAt-last.ResetsAt)) > 120 {
-			break
+	if length, ok := windowLength(window); ok && resetsAt > 0 {
+		first = store.QuotaSample{TS: resetsAt - int64(length/time.Second), UsedPercent: 0}
+	} else {
+		// Samples from the current window share (roughly) its reset time.
+		for i := len(hist) - 1; i >= 0; i-- {
+			h := hist[i]
+			if last.ResetsAt != 0 && math.Abs(float64(h.ResetsAt-last.ResetsAt)) > 120 {
+				break
+			}
+			if h.UsedPercent > last.UsedPercent+0.5 { // usage dropped since: an earlier window
+				break
+			}
+			first = h
 		}
-		if h.UsedPercent > last.UsedPercent+0.5 { // usage dropped since: an earlier window
-			break
-		}
-		first = h
 	}
 	elapsed := float64(last.TS - first.TS)
-	if elapsed < 15*60 {
+	if elapsed < 10*60 { // too early in the window to call a pace
 		return "", ""
 	}
 	rate := (last.UsedPercent - first.UsedPercent) / elapsed // percent per second

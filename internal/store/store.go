@@ -6,7 +6,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"ai-usage-tracker/internal/core"
+	"github.com/Dukko/ai-usage-tracker/internal/core"
 
 	_ "modernc.org/sqlite"
 )

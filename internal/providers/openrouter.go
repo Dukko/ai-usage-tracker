@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"ai-usage-tracker/internal/core"
+	"github.com/Dukko/ai-usage-tracker/internal/core"
 )
 
 // openRouter tracks OpenRouter spend.

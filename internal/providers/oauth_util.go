@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"ai-usage-tracker/internal/core"
+	"github.com/Dukko/ai-usage-tracker/internal/core"
 )
 
 func envOr(key, def string) string {
