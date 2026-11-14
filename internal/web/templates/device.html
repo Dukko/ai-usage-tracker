@@ -1,0 +1,15 @@
+{{define "title"}}Connect {{.Label}}{{end}}
+{{define "head"}}<meta http-equiv="refresh" content="{{.Refresh}};url=/oauth/device/{{.PendingID}}">{{end}}
+{{define "content"}}
+<h1>Connect {{.Label}}</h1>
+{{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+<section class="card">
+  <ol class="steps">
+    <li><a class="btn" href="{{.VerifyURL}}" target="_blank" rel="noopener noreferrer">Open sign-in page</a></li>
+    <li>Check that it shows this code, approve, and pick the workspace to track:
+      <pre class="code usercode">{{.UserCode}}</pre></li>
+    <li>This page checks every {{.Refresh}}s and continues on its own once you approve.</li>
+  </ol>
+  <p class="muted small">Each workspace is its own account. Connect again to track another one.</p>
+</section>
+{{end}}

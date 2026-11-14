@@ -24,7 +24,7 @@
     <div class="quota">
       <div class="row"><span>{{.Window}}</span><strong>{{pct .UsedPercent}}</strong></div>
       <div class="bar"><div class="fill {{.Level}}" style="{{.Style}}"></div></div>
-      {{if .ResetsIn}}<div class="muted small">resets {{.ResetsIn}}</div>{{end}}
+      {{if or .ResetsIn .Detail}}<div class="muted small">{{.Detail}}{{if and .ResetsIn .Detail}} · {{end}}{{if .ResetsIn}}resets {{.ResetsIn}}{{end}}</div>{{end}}
       {{.Spark}}
     </div>
     {{else}}<p class="muted">No quota data yet.</p>{{end}}
@@ -39,7 +39,7 @@
     <div class="quota">
       <div class="row"><span>{{.Window}}</span><strong>{{pct .UsedPercent}}</strong></div>
       <div class="bar"><div class="fill {{.Level}}" style="{{.Style}}"></div></div>
-      {{if .ResetsIn}}<div class="muted small">resets {{.ResetsIn}}</div>{{end}}
+      {{if or .ResetsIn .Detail}}<div class="muted small">{{.Detail}}{{if and .ResetsIn .Detail}} · {{end}}{{if .ResetsIn}}resets {{.ResetsIn}}{{end}}</div>{{end}}
     </div>
     {{end}}
     {{.Chart}}

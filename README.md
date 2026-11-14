@@ -7,7 +7,9 @@ A small self-hosted dashboard for keeping an eye on AI usage across accounts:
 - **OpenRouter**: daily spend, per-model history (with a management key), key limits and credit balance.
 - **Subscriptions (OAuth)**: rate-limit window usage (5-hour, weekly, …) for
   **Claude Pro/Max** and **ChatGPT Plus/Pro (Codex)**, connected with an OAuth login.
-- **OpenCode**: usage from your local OpenCode sessions (every provider it talks to: OpenCode Zen/Go,
+- **OpenCode Go / Console**: the Go plan's 5-hour, weekly and monthly limits, the plan name, and Console
+  spend budgets (which cover Zen pay-as-you-go spend), via the OpenCode Console sign-in or an API key.
+- **OpenCode (local sessions)**: usage from your local OpenCode sessions (every provider it talks to: OpenCode Zen/Go,
   OpenRouter, …), pushed to the tracker by a small client command.
 
 One Go binary, SQLite storage, server-rendered UI with no JavaScript, and credentials encrypted at rest.
@@ -58,7 +60,25 @@ Any OpenRouter key works:
 
 The remaining credit balance is shown when OpenRouter reports it.
 
-### OpenCode (push)
+### OpenCode Go / Console
+
+**Connect** → *OpenCode Go / Console* starts the same device sign-in the OpenCode CLI uses: open the link,
+check the code, approve, and pick a workspace. The page continues on its own. Each workspace is its own account.
+
+You get:
+
+- **Go limits**: 5-hour rolling, weekly and monthly usage, plus the plan (Go, Go Plus, Go Teams).
+  An untouched 5-hour window shows no reset time, because OpenCode reports a placeholder there.
+- **Console budgets**: each spend budget that applies to you, as `$spent of $limit` with its reset date.
+  This is how Zen pay-as-you-go spend shows up. OpenCode has no API for the raw Zen credit balance, so to see
+  per-model Zen spend, add the *OpenCode (local sessions)* push account below.
+
+Alternatively, add an OpenCode API key under *API usage*. It reads the Go limits but not the plan name.
+These are the endpoints OpenCode's own CLI reads (`packages/core/src/usage-limits.ts` in anomalyco/opencode),
+and the same approach as [OpenUsage](https://github.com/robinebers/openusage). They are not a documented
+public API. The Console URL can be overridden with `OPENCODE_CONSOLE_URL`.
+
+### OpenCode local sessions (push)
 
 OpenCode keeps usage in a local SQLite database (`~/.local/share/opencode/opencode.db`), so the machine
 running OpenCode sends it to the tracker instead of being polled:
@@ -115,7 +135,8 @@ and authenticates with its push token instead of the dashboard password.
 
 ```
 main.go                     config + wiring
-internal/providers/         one file per provider (anthropic_api, openai_api, openrouter, claude_sub, chatgpt_sub, opencode)
+internal/providers/         one file per provider (anthropic_api, openai_api, openrouter, claude_sub, chatgpt_sub,
+                            opencode_console, opencode)
 internal/push/              push client: local data readers (OpenCode) + /api/ingest sender
 internal/poller/            periodic polling, token-refresh persistence
 internal/store/             SQLite schema + queries
@@ -123,5 +144,6 @@ internal/secrets/           AES-GCM credential encryption
 internal/web/               handlers, templates, CSS (embedded in the binary)
 ```
 
-Adding a provider means implementing `providers.Provider` (plus `OAuthProvider`, `APIKeyProvider` or `PushProvider`)
+Adding a provider means implementing `providers.Provider` (plus any of `OAuthProvider`, `DeviceProvider`,
+`APIKeyProvider` or `PushProvider`)
 and calling `register` in `init()`.

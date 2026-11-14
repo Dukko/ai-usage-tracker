@@ -37,7 +37,8 @@ type DailyCost struct {
 type Quota struct {
 	Window      string
 	UsedPercent float64
-	ResetsAt    int64 // unix seconds, 0 if unknown
+	ResetsAt    int64  // unix seconds, 0 if unknown
+	Detail      string // optional extra text, e.g. "$12.30 of $50.00"
 }
 
 // Result is what a provider returns from one poll.

@@ -16,6 +16,7 @@ type quotaView struct {
 	UsedPercent float64
 	ResetsAt    int64
 	ResetsIn    string
+	Detail      string
 	Level       string
 	Style       template.CSS
 	Spark       template.HTML
@@ -60,6 +61,7 @@ func (s *Server) buildView(a store.Account, detail bool) (accountView, error) {
 				UsedPercent: q.UsedPercent,
 				ResetsAt:    q.ResetsAt,
 				ResetsIn:    until(q.ResetsAt),
+				Detail:      q.Detail,
 				Level:       level(q.UsedPercent),
 				Style:       template.CSS(fmt.Sprintf("width:%.1f%%", math.Max(0, math.Min(100, q.UsedPercent)))),
 			}

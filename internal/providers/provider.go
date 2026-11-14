@@ -12,9 +12,11 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -35,6 +37,27 @@ type Provider interface {
 	// Fetch polls the provider. It may update creds in place (e.g. after an OAuth
 	// token refresh); the caller persists any changes even when an error is returned.
 	Fetch(ctx context.Context, creds *core.Credentials) (*core.Result, error)
+}
+
+// DeviceStart is the first step of an OAuth device-code sign-in.
+type DeviceStart struct {
+	DeviceCode string
+	UserCode   string
+	VerifyURL  string
+	Interval   int // seconds between polls
+	ExpiresIn  int // seconds
+}
+
+// ErrAuthPending means the user hasn't approved the device sign-in yet.
+var ErrAuthPending = errors.New("authorization pending")
+
+// DeviceProvider signs in with the OAuth device-code flow.
+type DeviceProvider interface {
+	Provider
+	StartDevice(ctx context.Context) (*DeviceStart, error)
+	// PollDevice returns ErrAuthPending until the user approves. label is a
+	// suggested account name (e.g. the account email), possibly empty.
+	PollDevice(ctx context.Context, deviceCode string) (creds *core.Credentials, label string, err error)
 }
 
 type APIKeyProvider interface {
@@ -143,6 +166,15 @@ func doJSON(req *http.Request, out any) error {
 		return fmt.Errorf("decode %s: %w", req.URL.Path, err)
 	}
 	return nil
+}
+
+func postForm(ctx context.Context, u string, form url.Values, out any) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, strings.NewReader(form.Encode()))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	return doJSON(req, out)
 }
 
 func postJSON(ctx context.Context, url string, payload, out any) error {

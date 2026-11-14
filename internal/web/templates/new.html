@@ -5,10 +5,10 @@
 
 <section class="card">
   <h2>Subscription (OAuth)</h2>
-  <p class="muted">Tracks the 5-hour and weekly usage limits of a Claude Pro/Max or ChatGPT Plus/Pro plan.</p>
+  <p class="muted">Tracks the usage limits of a Claude Pro/Max, ChatGPT Plus/Pro, or OpenCode Go plan, plus OpenCode Console spend budgets.</p>
   <form method="post" action="/oauth/start" class="form">
     <label>Service
-      <select name="provider">{{range .OAuthProviders}}<option value="{{.ID}}">{{.Label}}</option>{{end}}</select>
+      <select name="provider">{{range .SignInProviders}}<option value="{{.ID}}">{{.Label}}</option>{{end}}</select>
     </label>
     <label>Name <input name="name" placeholder="e.g. Personal Max"></label>
     <button>Connect with OAuth</button>
@@ -32,7 +32,7 @@
 
 <section class="card">
   <h2>API usage</h2>
-  <p class="muted">Tracks daily token usage and cost. Anthropic and OpenAI need an organization <em>admin</em> key. OpenRouter works with any key, but a <em>management</em> key adds 30 days of per-model history.</p>
+  <p class="muted">Tracks daily token usage and cost. Anthropic and OpenAI need an organization <em>admin</em> key. OpenRouter works with any key, but a <em>management</em> key adds 30 days of per-model history. An OpenCode API key reads Go limits only.</p>
   <form method="post" action="/accounts/apikey" class="form">
     <label>Provider
       <select name="provider">{{range .APIProviders}}<option value="{{.ID}}">{{.Label}} ({{.KeyHint}})</option>{{end}}</select>

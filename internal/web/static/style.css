@@ -61,3 +61,4 @@ th { color: var(--muted); font-weight: 500; }
 pre.code { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; overflow-x: auto; font-size: .82rem; white-space: pre-wrap; word-break: break-all; }
 code { font-family: ui-monospace, monospace; font-size: .88em; }
 button.ghost-btn { background: transparent; color: var(--accent); }
+.usercode { font-size: 1.4rem; letter-spacing: .15em; text-align: center; }

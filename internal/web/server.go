@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
 	"io/fs"
@@ -37,6 +38,7 @@ type pending struct {
 	Provider string
 	Name     string
 	Created  time.Time
+	Device   *providers.DeviceStart // set for device-code sign-ins
 }
 
 type Server struct {
@@ -54,7 +56,7 @@ type Server struct {
 func New(st *store.Store, box *secrets.Box, pl *poller.Poller, password string) (http.Handler, error) {
 	s := &Server{st: st, box: box, pl: pl, password: password, pages: map[string]*template.Template{}, pending: map[string]pending{},
 		publicURL: strings.TrimRight(os.Getenv("TRACKER_PUBLIC_URL"), "/")}
-	for _, page := range []string{"dashboard", "new", "oauth", "account", "push"} {
+	for _, page := range []string{"dashboard", "new", "oauth", "account", "push", "device"} {
 		t, err := template.New("").Funcs(funcs).ParseFS(assets, "templates/base.html", "templates/"+page+".html")
 		if err != nil {
 			return nil, fmt.Errorf("parse %s: %w", page, err)
@@ -75,6 +77,7 @@ func New(st *store.Store, box *secrets.Box, pl *poller.Poller, password string) 
 	mux.HandleFunc("POST /accounts/import", s.importCreds)
 	mux.HandleFunc("POST /oauth/start", s.oauthStart)
 	mux.HandleFunc("POST /oauth/finish", s.oauthFinish)
+	mux.HandleFunc("GET /oauth/device/{pending}", s.devicePoll)
 	mux.HandleFunc("GET /accounts/{id}", s.accountDetail)
 	mux.HandleFunc("POST /accounts/{id}/poll", s.pollAccount)
 	mux.HandleFunc("POST /accounts/{id}/delete", s.deleteAccount)
@@ -164,21 +167,28 @@ func (s *Server) accountDetail(w http.ResponseWriter, r *http.Request) {
 }
 
 type newPage struct {
-	APIProviders   []providers.APIKeyProvider
-	OAuthProviders []providers.OAuthProvider
-	PushProviders  []providers.PushProvider
-	Error          string
+	APIProviders    []providers.APIKeyProvider
+	OAuthProviders  []providers.OAuthProvider // paste-code sign-in + CLI credential import
+	SignInProviders []providers.Provider      // everything offered under "Connect"
+	PushProviders   []providers.PushProvider
+	Error           string
 }
 
 func (s *Server) newPageData(errMsg string) newPage {
 	p := newPage{Error: errMsg}
 	for _, prov := range providers.All() {
-		switch x := prov.(type) {
-		case providers.OAuthProvider:
+		// A provider can offer several ways in (e.g. OpenCode: device sign-in or API key).
+		if x, ok := prov.(providers.OAuthProvider); ok {
 			p.OAuthProviders = append(p.OAuthProviders, x)
-		case providers.PushProvider:
+			p.SignInProviders = append(p.SignInProviders, prov)
+		}
+		if _, ok := prov.(providers.DeviceProvider); ok {
+			p.SignInProviders = append(p.SignInProviders, prov)
+		}
+		if x, ok := prov.(providers.PushProvider); ok {
 			p.PushProviders = append(p.PushProviders, x)
-		case providers.APIKeyProvider:
+		}
+		if x, ok := prov.(providers.APIKeyProvider); ok {
 			p.APIProviders = append(p.APIProviders, x)
 		}
 	}
@@ -221,7 +231,7 @@ func (s *Server) saveAccount(ctx context.Context, name string, prov providers.Pr
 
 func (s *Server) createAPIKey(w http.ResponseWriter, r *http.Request) {
 	prov, ok := providers.Get(r.FormValue("provider"))
-	if !ok || prov.Kind() != providers.KindAPIKey {
+	if _, takesKey := prov.(providers.APIKeyProvider); !ok || !takesKey {
 		s.newAccountError(w, "Unknown API provider.")
 		return
 	}
@@ -268,6 +278,10 @@ type oauthPage struct {
 
 func (s *Server) oauthStart(w http.ResponseWriter, r *http.Request) {
 	prov, ok := providers.Get(r.FormValue("provider"))
+	if dp, isDevice := prov.(providers.DeviceProvider); ok && isDevice {
+		s.deviceStart(w, r, dp)
+		return
+	}
 	op, isOAuth := prov.(providers.OAuthProvider)
 	if !ok || !isOAuth {
 		s.newAccountError(w, "Unknown subscription provider.")
@@ -354,6 +368,7 @@ type apiQuota struct {
 	Window      string  `json:"window"`
 	UsedPercent float64 `json:"used_percent"`
 	ResetsAt    int64   `json:"resets_at,omitempty"`
+	Detail      string  `json:"detail,omitempty"`
 }
 
 type apiAccount struct {
@@ -386,7 +401,7 @@ func (s *Server) apiAccounts(w http.ResponseWriter, r *http.Request) {
 		item := apiAccount{ID: a.ID, Name: a.Name, Provider: a.Provider, Plan: a.Plan, LastPoll: a.LastPoll,
 			LastError: a.LastError, Balance: a.Balance}
 		for _, q := range v.Quotas {
-			item.Quotas = append(item.Quotas, apiQuota{Window: q.Window, UsedPercent: q.UsedPercent, ResetsAt: q.ResetsAt})
+			item.Quotas = append(item.Quotas, apiQuota{Window: q.Window, UsedPercent: q.UsedPercent, ResetsAt: q.ResetsAt, Detail: q.Detail})
 		}
 		if !v.IsOAuth {
 			item.CostToday, item.Cost30d, item.Tokens30d = &v.CostToday, &v.Cost30, &v.Tokens30
@@ -564,4 +579,76 @@ func (s *Server) ingest(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{"ok": true, "rows": len(p.Rows)})
+}
+
+// ---- device-code sign-in ----
+
+type devicePage struct {
+	PendingID string
+	Label     string
+	UserCode  string
+	VerifyURL string
+	Refresh   int
+	Error     string
+}
+
+func (s *Server) addPending(p pending) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for k, v := range s.pending {
+		if time.Since(v.Created) > 30*time.Minute {
+			delete(s.pending, k)
+		}
+	}
+	s.pending[p.State] = p
+}
+
+func (s *Server) deviceStart(w http.ResponseWriter, r *http.Request, dp providers.DeviceProvider) {
+	start, err := dp.StartDevice(r.Context())
+	if err != nil {
+		s.newAccountError(w, "Could not start sign-in: "+err.Error())
+		return
+	}
+	pa := providers.NewPendingAuth()
+	s.addPending(pending{PendingAuth: pa, Provider: dp.ID(), Name: r.FormValue("name"), Created: time.Now(), Device: start})
+	s.render(w, "device", devicePage{PendingID: pa.State, Label: dp.Label(), UserCode: start.UserCode,
+		VerifyURL: start.VerifyURL, Refresh: start.Interval})
+}
+
+// devicePoll is hit by the waiting page's meta refresh; each visit polls the token endpoint once.
+func (s *Server) devicePoll(w http.ResponseWriter, r *http.Request) {
+	pid := r.PathValue("pending")
+	s.mu.Lock()
+	p, ok := s.pending[pid]
+	s.mu.Unlock()
+	if !ok || p.Device == nil || time.Since(p.Created) > time.Duration(p.Device.ExpiresIn)*time.Second {
+		s.newAccountError(w, "That sign-in expired. Please start again.")
+		return
+	}
+	prov, _ := providers.Get(p.Provider)
+	dp := prov.(providers.DeviceProvider)
+	page := devicePage{PendingID: pid, Label: prov.Label(), UserCode: p.Device.UserCode, VerifyURL: p.Device.VerifyURL, Refresh: p.Device.Interval}
+
+	creds, label, err := dp.PollDevice(r.Context(), p.Device.DeviceCode)
+	if errors.Is(err, providers.ErrAuthPending) {
+		s.render(w, "device", page)
+		return
+	}
+	s.mu.Lock()
+	delete(s.pending, pid)
+	s.mu.Unlock()
+	if err != nil {
+		s.newAccountError(w, err.Error())
+		return
+	}
+	name := p.Name
+	if strings.TrimSpace(name) == "" && label != "" {
+		name = prov.Label() + " (" + label + ")"
+	}
+	id, err := s.saveAccount(r.Context(), name, prov, creds)
+	if err != nil {
+		s.newAccountError(w, err.Error())
+		return
+	}
+	http.Redirect(w, r, fmt.Sprintf("/accounts/%d", id), http.StatusSeeOther)
 }

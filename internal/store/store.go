@@ -72,13 +72,18 @@ func (s *Store) Close() error { return s.db.Close() }
 
 // migrate adds columns introduced after the first release.
 func (s *Store) migrate() error {
-	var n int
-	if err := s.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('accounts') WHERE name = 'balance'`).Scan(&n); err != nil {
-		return err
-	}
-	if n == 0 {
-		if _, err := s.db.Exec(`ALTER TABLE accounts ADD COLUMN balance REAL`); err != nil {
+	for _, m := range []struct{ table, column, ddl string }{
+		{"accounts", "balance", `ALTER TABLE accounts ADD COLUMN balance REAL`},
+		{"quota_snapshots", "detail", `ALTER TABLE quota_snapshots ADD COLUMN detail TEXT NOT NULL DEFAULT ''`},
+	} {
+		var n int
+		if err := s.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?`, m.table, m.column).Scan(&n); err != nil {
 			return err
+		}
+		if n == 0 {
+			if _, err := s.db.Exec(m.ddl); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -174,8 +179,8 @@ func (s *Store) SaveResult(id int64, r *core.Result) error {
 		}
 	}
 	for _, q := range r.Quotas {
-		if _, err := tx.Exec(`INSERT INTO quota_snapshots(account_id, ts, win, used_percent, resets_at) VALUES (?, ?, ?, ?, ?)`,
-			id, now, q.Window, q.UsedPercent, q.ResetsAt); err != nil {
+		if _, err := tx.Exec(`INSERT INTO quota_snapshots(account_id, ts, win, used_percent, resets_at, detail) VALUES (?, ?, ?, ?, ?, ?)`,
+			id, now, q.Window, q.UsedPercent, q.ResetsAt, q.Detail); err != nil {
 			return err
 		}
 	}
@@ -193,7 +198,7 @@ func (s *Store) SaveResult(id int64, r *core.Result) error {
 func (s *Store) LatestQuotas(id int64) ([]core.Quota, error) {
 	// One row per window from the latest poll; MAX(rowid) makes SQLite take the
 	// bare columns from the newest row if two polls landed in the same second.
-	rows, err := s.db.Query(`SELECT win, used_percent, resets_at, MAX(rowid) FROM quota_snapshots
+	rows, err := s.db.Query(`SELECT win, used_percent, resets_at, detail, MAX(rowid) FROM quota_snapshots
 		WHERE account_id = ? AND ts = (SELECT MAX(ts) FROM quota_snapshots WHERE account_id = ?)
 		GROUP BY win ORDER BY win`, id, id)
 	if err != nil {
@@ -204,7 +209,7 @@ func (s *Store) LatestQuotas(id int64) ([]core.Quota, error) {
 	for rows.Next() {
 		var q core.Quota
 		var rowid int64
-		if err := rows.Scan(&q.Window, &q.UsedPercent, &q.ResetsAt, &rowid); err != nil {
+		if err := rows.Scan(&q.Window, &q.UsedPercent, &q.ResetsAt, &q.Detail, &rowid); err != nil {
 			return nil, err
 		}
 		out = append(out, q)
