@@ -74,7 +74,8 @@ func providerStyle(id string) (color, initials string) {
 	return "#64748B", strings.ToUpper(id[:min(2, len(id))])
 }
 
-var windowWords = map[string]string{"5h": "5-hour", "7d": "Weekly", "1d": "Daily", "24h": "Daily", "30d": "Monthly"}
+var windowWords = map[string]string{"5h": "5-hour", "7d": "Weekly", "1d": "Daily", "24h": "Daily", "30d": "Monthly",
+	"daily": "Daily", "weekly": "Weekly", "monthly": "Monthly"}
 
 // windowLabel turns "7d opus" into "Weekly · Opus".
 func windowLabel(w string) string {
@@ -213,15 +214,32 @@ func clamp(x, lo, hi float64) float64 { return math.Max(lo, math.Min(hi, x)) }
 
 var windowLen = regexp.MustCompile(`^(\d+)([mhd])\b`)
 
-// windowLength parses the duration from window ids like "5h", "7d" or "7d opus".
-func windowLength(window string) (time.Duration, bool) {
-	m := windowLen.FindStringSubmatch(window)
+// windowStart works out when the current window began from its id ("5h",
+// "7d opus", "weekly", "monthly") and its reset time.
+func windowStart(window string, resetsAt int64) (int64, bool) {
+	if resetsAt <= 0 {
+		return 0, false
+	}
+	head, _, _ := strings.Cut(strings.ToLower(window), " ")
+	reset := time.Unix(resetsAt, 0)
+	switch head {
+	case "daily":
+		return reset.Add(-24 * time.Hour).Unix(), true
+	case "weekly":
+		return reset.Add(-7 * 24 * time.Hour).Unix(), true
+	case "monthly":
+		return reset.AddDate(0, -1, 0).Unix(), true
+	}
+	m := windowLen.FindStringSubmatch(head)
 	if m == nil {
 		return 0, false
 	}
 	n, _ := strconv.Atoi(m[1])
 	unit := map[string]time.Duration{"m": time.Minute, "h": time.Hour, "d": 24 * time.Hour}[m[2]]
-	return time.Duration(n) * unit, n > 0
+	if n <= 0 {
+		return 0, false
+	}
+	return resetsAt - int64(time.Duration(n)*unit/time.Second), true
 }
 
 // quotaForecast extrapolates the average pace since the current window began.
@@ -235,9 +253,11 @@ func quotaForecast(window string, hist []store.QuotaSample, resetsAt int64, leve
 	}
 	last := hist[len(hist)-1]
 	first := last
-	if length, ok := windowLength(window); ok && resetsAt > 0 {
-		first = store.QuotaSample{TS: resetsAt - int64(length/time.Second), UsedPercent: 0}
+	start, known := windowStart(window, resetsAt)
+	if known && start < last.TS {
+		first = store.QuotaSample{TS: start, UsedPercent: 0}
 	} else {
+		known = false
 		// Samples from the current window share (roughly) its reset time.
 		for i := len(hist) - 1; i >= 0; i-- {
 			h := hist[i]
@@ -257,7 +277,8 @@ func quotaForecast(window string, hist []store.QuotaSample, resetsAt int64, leve
 	rate := (last.UsedPercent - first.UsedPercent) / elapsed // percent per second
 	now := float64(time.Now().Unix())
 	if rate <= 0 {
-		if resetsAt > 0 {
+		// Flat readings only mean something if they cover the whole window so far.
+		if resetsAt > 0 && known {
 			return fmt.Sprintf("At this pace: stays near %.0f%% until the reset", last.UsedPercent), "ok"
 		}
 		return "", ""

@@ -292,8 +292,22 @@ func TestQuotaForecastFromOneReading(t *testing.T) {
 	if msg, _ := quotaForecast("7d opus", one, now+6*86400, lvl); !strings.Contains(msg, "about 35%") {
 		t.Errorf("weekly: %q", msg)
 	}
+	// OpenCode Go names: weekly at 49% with 25h left is ~58% by the reset; monthly at 70% with 10 days left hits 100% first.
+	one = []store.QuotaSample{{TS: now, UsedPercent: 49}}
+	if msg, _ := quotaForecast("weekly", one, now+25*3600, lvl); !strings.Contains(msg, "about 58%") {
+		t.Errorf("opencode weekly: %q", msg)
+	}
+	one = []store.QuotaSample{{TS: now, UsedPercent: 70}}
+	if msg, _ := quotaForecast("monthly", one, now+10*86400, lvl); !strings.Contains(msg, "hits 100%") {
+		t.Errorf("opencode monthly: %q", msg)
+	}
+	// Flat history that doesn't reach back to the window start says nothing.
+	flat := []store.QuotaSample{{TS: now - 3600, UsedPercent: 70}, {TS: now, UsedPercent: 70}}
+	if msg, _ := quotaForecast("budget", flat, now+86400, lvl); msg != "" {
+		t.Errorf("flat partial history: %q", msg)
+	}
 	// Unknown window length with one reading: no guess.
-	if msg, _ := quotaForecast("monthly budget", one, now+6*86400, lvl); msg != "" {
+	if msg, _ := quotaForecast("budget: opus", one, now+6*86400, lvl); msg != "" {
 		t.Errorf("unknown window: %q", msg)
 	}
 }
