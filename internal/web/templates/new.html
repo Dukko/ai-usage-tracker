@@ -1,56 +1,53 @@
-{{define "title"}}Add account{{end}}
 {{define "content"}}
-<h1>Add account</h1>
-{{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+<nav class="crumbs" aria-label="Breadcrumb"><a href="/accounts">Accounts</a><span aria-hidden="true">/</span><span>Add account</span></nav>
+<div class="page-head"><div><h1>Add account</h1><p class="muted">Pick how this service reports usage.</p></div></div>
+{{if .Error}}<div class="alert" role="alert">{{template "icon-alert"}}<span>{{.Error}}</span></div>{{end}}
 
-<section class="card">
-  <h2>Subscription (OAuth)</h2>
+<div class="add-grid">
+<section class="panel" aria-labelledby="sub-h">
+  <h2 id="sub-h">Subscription</h2>
   <p class="muted">Tracks the usage limits of a Claude Pro/Max, ChatGPT Plus/Pro, or OpenCode Go plan, plus OpenCode Console spend budgets.</p>
   <form method="post" action="/oauth/start" class="form">
-    <label>Service
-      <select name="provider">{{range .SignInProviders}}<option value="{{.ID}}">{{.Label}}</option>{{end}}</select>
-    </label>
-    <label>Name <input name="name" placeholder="e.g. Personal Max"></label>
-    <button>Connect with OAuth</button>
+    <div class="field"><label for="s-prov">Service</label>
+      <select id="s-prov" name="provider">{{range .SignInProviders}}<option value="{{.ID}}">{{.Label}}</option>{{end}}</select></div>
+    <div class="field"><label for="s-name">Name</label><input id="s-name" name="name" placeholder="e.g. Personal Max"></div>
+    <button class="btn btn-primary">Connect with sign-in</button>
   </form>
-  <details>
+  <details class="more">
     <summary>Or import credentials from the CLI</summary>
     <form method="post" action="/accounts/import" class="form">
-      <label>Service
-        <select name="provider">{{range .OAuthProviders}}<option value="{{.ID}}">{{.Label}}</option>{{end}}</select>
-      </label>
-      <label>Name <input name="name"></label>
-      <label>Credentials JSON
-        <textarea name="json" rows="6" required spellcheck="false"></textarea>
-      </label>
+      <div class="field"><label for="i-prov">Service</label>
+        <select id="i-prov" name="provider">{{range .OAuthProviders}}<option value="{{.ID}}">{{.Label}}</option>{{end}}</select></div>
+      <div class="field"><label for="i-name">Name</label><input id="i-name" name="name"></div>
+      <div class="field"><label for="i-json">Credentials JSON</label><textarea id="i-json" name="json" rows="6" required spellcheck="false"></textarea></div>
       <ul class="muted small">{{range .OAuthProviders}}<li>{{.Label}}: {{.ImportHint}}</li>{{end}}</ul>
-      <p class="muted small">Note: the tracker refreshes tokens on its own, which can sign the CLI out. Connecting with OAuth above avoids that.</p>
-      <button>Import</button>
+      <p class="muted small">The tracker refreshes tokens on its own, which can sign the CLI out. Connecting with sign-in above avoids that.</p>
+      <button class="btn">Import</button>
     </form>
   </details>
 </section>
 
-<section class="card">
-  <h2>API usage</h2>
-  <p class="muted">Tracks daily token usage and cost. Anthropic and OpenAI need an organization <em>admin</em> key. OpenRouter works with any key, but a <em>management</em> key adds 30 days of per-model history. An OpenCode API key reads Go limits only.</p>
+<section class="panel" aria-labelledby="api-h">
+  <h2 id="api-h">API key</h2>
+  <p class="muted">Tracks daily tokens and cost. Anthropic and OpenAI need an organization <em>admin</em> key. OpenRouter works with any key, but a <em>management</em> key adds 30 days of per-model history. An OpenCode API key reads Go limits only.</p>
   <form method="post" action="/accounts/apikey" class="form">
-    <label>Provider
-      <select name="provider">{{range .APIProviders}}<option value="{{.ID}}">{{.Label}} ({{.KeyHint}})</option>{{end}}</select>
-    </label>
-    <label>Name <input name="name" placeholder="e.g. Work org"></label>
-    <label>API key <input name="key" type="password" autocomplete="off" required></label>
-    <button>Add</button>
+    <div class="field"><label for="a-prov">Provider</label>
+      <select id="a-prov" name="provider">{{range .APIProviders}}<option value="{{.ID}}">{{.Label}} ({{.KeyHint}})</option>{{end}}</select></div>
+    <div class="field"><label for="a-name">Name</label><input id="a-name" name="name" placeholder="e.g. Work org"></div>
+    <div class="field"><label for="a-key">API key</label><input id="a-key" name="key" type="password" autocomplete="off" required></div>
+    <button class="btn btn-primary">Add</button>
   </form>
 </section>
-<section class="card">
-  <h2>Local tool (push)</h2>
+
+<section class="panel" aria-labelledby="push-h">
+  <h2 id="push-h">Local tool</h2>
   <p class="muted">For tools that keep usage on your machine. You get a token and run <code>ai-usage-tracker push</code> there to send daily totals.</p>
   <form method="post" action="/accounts/push" class="form">
-    <label>Tool
-      <select name="provider">{{range .PushProviders}}<option value="{{.ID}}">{{.Label}}</option>{{end}}</select>
-    </label>
-    <label>Name <input name="name" placeholder="e.g. OpenCode laptop"></label>
-    <button>Create &amp; get token</button>
+    <div class="field"><label for="p-prov">Tool</label>
+      <select id="p-prov" name="provider">{{range .PushProviders}}<option value="{{.ID}}">{{.Label}}</option>{{end}}</select></div>
+    <div class="field"><label for="p-name">Name</label><input id="p-name" name="name" placeholder="e.g. OpenCode laptop"></div>
+    <button class="btn btn-primary">Create and get token</button>
   </form>
 </section>
+</div>
 {{end}}

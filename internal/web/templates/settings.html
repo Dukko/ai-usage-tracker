@@ -1,0 +1,211 @@
+{{define "content"}}
+<h1 class="page-title">Settings</h1>
+<div class="settings">
+  <nav class="subnav" aria-label="Settings sections">
+    <a href="#appearance">Appearance</a>
+    <a href="#dashboard">Dashboard</a>
+    {{if .IsAdmin}}<a href="#checks">Checks &amp; alerts</a><a href="#users">Users</a>{{end}}
+    <a href="#security">Security</a>
+    {{if .IsAdmin}}<a href="#tokens">API tokens</a>{{end}}
+    <p class="subnav-note">Appearance and Dashboard are saved for you only.{{if .IsAdmin}} The admin sections apply to everyone.{{end}}</p>
+  </nav>
+
+  <div class="settings-body">
+    <section class="panel" id="appearance" aria-labelledby="ap-h">
+      <div><h2 id="ap-h">Appearance</h2><p class="muted">Pick a theme. It applies right away.</p></div>
+      <form method="post" action="/settings/appearance" class="stack">
+        {{template "theme-group" (dict "Title" "Dark" "Themes" .DarkThemes)}}
+        {{template "theme-group" (dict "Title" "Light" "Themes" .LightThemes)}}
+        <div class="row-setting">
+          <div><div class="strong">Follow system light/dark</div><div class="muted small">Use {{.Light}} when your device is light and {{.Dark}} when it's dark.</div></div>
+          <button class="switch" role="switch" aria-checked="{{if .Me.Prefs.FollowSystem}}true{{else}}false{{end}}" aria-label="Follow system light/dark"
+            name="follow" value="{{if .Me.Prefs.FollowSystem}}off{{else}}on{{end}}"><span></span></button>
+        </div>
+        <div class="row-setting">
+          <div><div class="strong">Density</div><div class="muted small">Compact fits more cards on screen.</div></div>
+          <div class="seg" role="group" aria-label="Density">
+            <button name="density" value="comfortable"{{if not .Me.Prefs.Compact}} aria-pressed="true"{{end}}>Comfortable</button>
+            <button name="density" value="compact"{{if .Me.Prefs.Compact}} aria-pressed="true"{{end}}>Compact</button>
+          </div>
+        </div>
+      </form>
+    </section>
+
+    <section class="panel" id="dashboard" aria-labelledby="db-h">
+      <h2 id="db-h">Dashboard</h2>
+      <form method="post" action="/settings/dashboard" class="stack">
+        <div class="grid2">
+          <div class="field"><label for="range">Default chart range</label>
+            <select id="range" name="range">
+              <option value="7"{{if eq .Me.Prefs.Range 7}} selected{{end}}>7 days</option>
+              <option value="30"{{if and (ne .Me.Prefs.Range 7) (ne .Me.Prefs.Range 90)}} selected{{end}}>30 days</option>
+              <option value="90"{{if eq .Me.Prefs.Range 90}} selected{{end}}>90 days</option>
+            </select></div>
+          <div class="field"><label for="first">Show first</label>
+            <select id="first" name="first">
+              <option value="subs"{{if ne .Me.Prefs.ShowFirst "api"}} selected{{end}}>Subscription limits</option>
+              <option value="api"{{if eq .Me.Prefs.ShowFirst "api"}} selected{{end}}>Pay-as-you-go spend</option>
+            </select></div>
+        </div>
+        {{if .Accounts}}
+        <fieldset class="field">
+          <legend>Accounts on the dashboard</legend>
+          <ul class="toggle-list">
+          {{range .Accounts}}
+            <li><label>
+              <span class="pbadge sm" style="{{.Badge}}" aria-hidden="true">{{.Initials}}</span>
+              <span class="grow"><span class="strong">{{.Name}}</span> <span class="muted small">{{.Provider}}</span></span>
+              <input type="checkbox" class="switch-input" name="show" value="{{.ID}}"{{if .Shown}} checked{{end}}>
+            </label></li>
+          {{end}}
+          </ul>
+        </fieldset>
+        {{end}}
+        <div class="end"><button class="btn btn-primary">Save</button></div>
+      </form>
+    </section>
+
+    {{if .IsAdmin}}
+    <section class="panel" id="checks" aria-labelledby="ck-h">
+      <div class="title-row"><h2 id="ck-h">Checks &amp; alerts</h2><span class="pill">Admin</span></div>
+      {{if eq .ErrorAt "checks"}}<div class="alert" role="alert">{{template "icon-alert"}}<span>{{.Error}}</span></div>{{end}}
+      <form method="post" action="/settings/checks" class="stack">
+        <div class="grid2">
+          <div class="field"><label for="poll">Check every</label>
+            <select id="poll" name="poll">{{range .PollOptions}}<option value="{{.}}"{{if eq . $.Set.PollMinutes}} selected{{end}}>{{if eq . 60}}1 hour{{else if gt . 60}}{{.}} minutes ({{div . 60}} h){{else}}{{.}} minutes{{end}}</option>{{end}}</select></div>
+          <div class="field"><label for="keep">Keep limit history for</label>
+            <select id="keep" name="keep">{{range .KeepOptions}}<option value="{{.}}"{{if eq . $.Set.RetentionDays}} selected{{end}}>{{if eq . 365}}1 year{{else}}{{.}} days{{end}}</option>{{end}}</select></div>
+        </div>
+        <div class="grid2">
+          <div class="field">
+            <div class="label-row"><label for="warn">Warning at</label><output for="warn" class="lvl-warn strong" data-out="warn">{{.Set.Warn}}%</output></div>
+            <input id="warn" name="warn" type="range" min="50" max="95" step="5" value="{{.Set.Warn}}" class="range-warn">
+          </div>
+          <div class="field">
+            <div class="label-row"><label for="crit">Critical at</label><output for="crit" class="lvl-crit strong" data-out="crit">{{.Set.Crit}}%</output></div>
+            <input id="crit" name="crit" type="range" min="55" max="100" step="5" value="{{.Set.Crit}}" class="range-crit">
+          </div>
+        </div>
+        <div class="thresholds" aria-hidden="true" data-thresholds>
+          <div class="th-bar"><span class="th-ok" style="flex-basis:{{.Set.Warn}}%"></span><span class="th-warn"></span><span class="th-crit" style="flex-basis:{{sub 100.0 (float .Set.Crit)}}%"></span></div>
+          <div class="axis"><span>0%</span><span>Bars change color at these points</span><span>100%</span></div>
+        </div>
+        <div class="end"><button class="btn btn-primary">Save</button></div>
+      </form>
+    </section>
+
+    <section class="panel" id="users" aria-labelledby="us-h">
+      <div class="title-row"><h2 id="us-h">Users</h2><span class="pill">Admin</span></div>
+      {{if eq .ErrorAt "users"}}<div class="alert" role="alert">{{template "icon-alert"}}<span>{{.Error}}</span></div>{{end}}
+      <div class="table-wrap"><table class="left">
+        <thead><tr><th scope="col">User</th><th scope="col">Role</th><th scope="col">Last sign-in</th><th scope="col"><span class="sr">Actions</span></th></tr></thead>
+        <tbody>
+        {{range .Users}}
+          <tr>
+            <td class="strong">{{.Username}}{{if eq .ID $.Me.ID}} <span class="muted">(you)</span>{{end}}</td>
+            <td>{{if .IsAdmin}}Admin{{else}}Viewer · read-only{{end}}</td>
+            <td class="muted">{{ago .LastLogin}}</td>
+            <td class="row-actions">
+              {{if ne .ID $.Me.ID}}
+              <details class="pop right">
+                <summary class="btn sm">Reset password</summary>
+                <form method="post" action="/settings/users/{{.ID}}/password" class="pop-body">
+                  <label for="rp-{{.ID}}">New password for {{.Username}}</label>
+                  <input id="rp-{{.ID}}" name="password" type="password" required minlength="8" autocomplete="new-password">
+                  <button class="btn btn-primary">Set password</button>
+                </form>
+              </details>
+              <form method="post" action="/settings/users/{{.ID}}/delete" data-confirm="Remove {{.Username}}? They'll be signed out."><button class="btn sm btn-ghost-danger">Remove</button></form>
+              {{end}}
+            </td>
+          </tr>
+        {{end}}
+        </tbody>
+      </table></div>
+      <details class="more">
+        <summary>{{template "icon-plus"}}Add user</summary>
+        <form method="post" action="/settings/users" class="grid3">
+          <div class="field"><label for="nu-name">Username</label><input id="nu-name" name="username" required autocomplete="off"></div>
+          <div class="field"><label for="nu-pw">Password</label><input id="nu-pw" name="password" type="password" required minlength="8" autocomplete="new-password"></div>
+          <div class="field"><label for="nu-role">Role</label><select id="nu-role" name="role"><option value="viewer">Viewer · read-only</option><option value="admin">Admin</option></select></div>
+          <div><button class="btn btn-primary">Add user</button></div>
+        </form>
+      </details>
+      <p class="muted small">Viewers see the dashboard and account pages and can change their own appearance and password. They can't add, refresh or delete accounts, or change the admin settings.</p>
+    </section>
+    {{end}}
+
+    <section class="panel" id="security" aria-labelledby="se-h">
+      <h2 id="se-h">Security</h2>
+      {{if eq .ErrorAt "security"}}<div class="alert" role="alert">{{template "icon-alert"}}<span>{{.Error}}</span></div>{{end}}
+      <form method="post" action="/settings/password" class="stack">
+        <h3>Change password</h3>
+        <input type="text" name="username" value="{{.Me.Username}}" autocomplete="username" hidden>
+        <div class="grid3">
+          <div class="field"><label for="cur">Current password</label><input id="cur" name="current" type="password" required autocomplete="current-password"></div>
+          <div class="field"><label for="new">New password</label><input id="new" name="new" type="password" required minlength="8" autocomplete="new-password"></div>
+          <div class="field"><label for="new2">Confirm</label><input id="new2" name="confirm" type="password" required minlength="8" autocomplete="new-password"></div>
+        </div>
+        <div><button class="btn btn-primary">Update password</button></div>
+      </form>
+      <div class="stack divided">
+        <div class="title-row spread">
+          <h3>Signed-in sessions</h3>
+          {{if gt (len .Sessions) 1}}<form method="post" action="/settings/sessions/others"><button class="btn sm">Sign out everywhere else</button></form>{{end}}
+        </div>
+        {{range .Sessions}}
+        <div class="item-row">
+          <div><div class="strong">{{browser .UserAgent}}</div><div class="muted small">{{if .Current}}this browser · {{end}}{{.IP}} · signed in {{date .CreatedAt}}</div></div>
+          <span class="muted small">{{if .Current}}Current{{else}}Active {{ago .LastSeen}}{{end}}</span>
+        </div>
+        {{end}}
+      </div>
+    </section>
+
+    {{if .IsAdmin}}
+    <section class="panel" id="tokens" aria-labelledby="tk-h">
+      <div class="title-row spread">
+        <div>
+          <div class="title-row"><h2 id="tk-h">Read-only API tokens</h2><span class="pill">Admin</span></div>
+          <div class="muted small">For widgets and scripts reading <code>/api/accounts</code>, e.g. Home Assistant. Send it as <code>Authorization: Bearer &lt;token&gt;</code>.</div>
+        </div>
+      </div>
+      {{if eq .ErrorAt "tokens"}}<div class="alert" role="alert">{{template "icon-alert"}}<span>{{.Error}}</span></div>{{end}}
+      {{if .NewToken}}
+      <div class="new-token" role="status">
+        <div class="strong">Copy your new token now. It won't be shown again.</div>
+        <pre class="code" data-copy>{{.NewToken}}</pre>
+      </div>
+      {{end}}
+      {{range .Tokens}}
+      <div class="item-row">
+        <div><div class="strong">{{.Name}}</div><div class="muted small">created {{date .CreatedAt}} · {{if .LastUsed}}last used {{ago .LastUsed}}{{else}}never used{{end}}</div></div>
+        <form method="post" action="/settings/tokens/{{.ID}}/delete" data-confirm="Revoke {{.Name}}? Anything using it stops working."><button class="btn sm btn-ghost-danger">Revoke</button></form>
+      </div>
+      {{end}}
+      <form method="post" action="/settings/tokens" class="inline-form">
+        <div class="field grow"><label for="tk-name">Name</label><input id="tk-name" name="name" required maxlength="80" placeholder="e.g. Home Assistant"></div>
+        <button class="btn">Create token</button>
+      </form>
+    </section>
+    {{end}}
+  </div>
+</div>
+{{end}}
+
+{{define "theme-group"}}
+<div>
+  <div class="muted small group-label">{{.Title}}</div>
+  <div class="theme-grid" role="radiogroup" aria-label="{{.Title}} themes">
+  {{range .Themes}}
+    <button class="theme-card" name="theme" value="{{.ID}}" role="radio" aria-checked="{{if .Selected}}true{{else}}false{{end}}" data-theme="{{.ID}}">
+      <span class="tc-preview" aria-hidden="true">
+        <span class="tc-top"><span class="tc-dot"></span><span class="tc-line"></span></span>
+        <span class="tc-card"><span class="tc-text"></span><span class="tc-meter"><span class="tc-warn"></span></span><span class="tc-meter"><span class="tc-ok"></span></span></span>
+      </span>
+      <span class="tc-name">{{.Label}}</span>
+    </button>
+  {{end}}
+  </div>
+</div>
+{{end}}

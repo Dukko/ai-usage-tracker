@@ -1,11 +1,11 @@
-{{define "title"}}Connect {{.Label}}{{end}}
 {{define "head"}}<meta http-equiv="refresh" content="{{.Refresh}};url=/oauth/device/{{.PendingID}}">{{end}}
 {{define "content"}}
+<nav class="crumbs" aria-label="Breadcrumb"><a href="/accounts/new">Add account</a><span aria-hidden="true">/</span><span>{{.Label}}</span></nav>
 <h1>Connect {{.Label}}</h1>
-{{if .Error}}<p class="error">{{.Error}}</p>{{end}}
-<section class="card">
+{{if .Error}}<div class="alert" role="alert">{{template "icon-alert"}}<span>{{.Error}}</span></div>{{end}}
+<section class="panel narrow">
   <ol class="steps">
-    <li><a class="btn" href="{{.VerifyURL}}" target="_blank" rel="noopener noreferrer">Open sign-in page</a></li>
+    <li><a class="btn btn-primary" href="{{.VerifyURL}}" target="_blank" rel="noopener noreferrer">Open sign-in page</a></li>
     <li>Check that it shows this code, approve, and pick the workspace to track:
       <pre class="code usercode">{{.UserCode}}</pre></li>
     <li>This page checks every {{.Refresh}}s and continues on its own once you approve.</li>

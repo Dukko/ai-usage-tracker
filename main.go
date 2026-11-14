@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -43,6 +44,7 @@ func run() error {
 	addr := env("TRACKER_ADDR", ":8080")
 	dataDir := env("TRACKER_DATA_DIR", "./data")
 	password := os.Getenv("TRACKER_PASSWORD")
+	trustProxy, _ := strconv.ParseBool(os.Getenv("TRACKER_TRUST_PROXY"))
 	interval, err := time.ParseDuration(env("TRACKER_POLL_INTERVAL", "10m"))
 	if err != nil || interval < time.Minute {
 		return errors.New("TRACKER_POLL_INTERVAL must be a duration of at least 1m (e.g. 10m)")
@@ -64,13 +66,19 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// An interval saved in Settings wins over the environment.
+	if saved, err := st.HasSetting("poll_minutes"); err == nil && saved {
+		if set, err := st.GetSettings(); err == nil {
+			interval = time.Duration(set.PollMinutes) * time.Minute
+		}
+	}
 	pl := poller.New(st, box, interval)
-	go pl.Run(ctx)
 
-	handler, err := web.New(st, box, pl, password)
+	handler, err := web.New(st, box, pl, web.Config{AdminUser: os.Getenv("TRACKER_USERNAME"), AdminPassword: password, TrustProxy: trustProxy})
 	if err != nil {
 		return err
 	}
+	go pl.Run(ctx)
 	srv := &http.Server{Addr: addr, Handler: handler, ReadHeaderTimeout: 10 * time.Second}
 
 	go func() {
@@ -80,9 +88,6 @@ func run() error {
 		_ = srv.Shutdown(shutdownCtx)
 	}()
 
-	if password == "" {
-		slog.Warn("TRACKER_PASSWORD is not set: the dashboard is unauthenticated, only expose it on a trusted network")
-	}
 	slog.Info("listening", "addr", addr, "data", dataDir, "poll_interval", interval)
 	if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 		return err

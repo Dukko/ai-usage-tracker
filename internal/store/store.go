@@ -3,6 +3,7 @@ package store
 
 import (
 	"database/sql"
+	"sync/atomic"
 	"time"
 
 	"ai-usage-tracker/internal/core"
@@ -48,7 +49,10 @@ CREATE TABLE IF NOT EXISTS quota_snapshots (
 CREATE INDEX IF NOT EXISTS quota_snapshots_idx ON quota_snapshots(account_id, win, ts);
 `
 
-type Store struct{ db *sql.DB }
+type Store struct {
+	db            *sql.DB
+	retentionDays atomic.Int64 // how long quota history is kept
+}
 
 func Open(path string) (*Store, error) {
 	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)")
@@ -56,7 +60,7 @@ func Open(path string) (*Store, error) {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
-	if _, err := db.Exec(schema); err != nil {
+	if _, err := db.Exec(schema + authSchema); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -65,6 +69,12 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	set, err := s.GetSettings()
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	s.retentionDays.Store(int64(set.RetentionDays))
 	return s, nil
 }
 
@@ -144,6 +154,11 @@ func (s *Store) DeleteAccount(id int64) error {
 	return err
 }
 
+func (s *Store) RenameAccount(id int64, name string) error {
+	_, err := s.db.Exec(`UPDATE accounts SET name = ? WHERE id = ?`, name, id)
+	return err
+}
+
 func (s *Store) UpdateSecret(id int64, secret []byte) error {
 	_, err := s.db.Exec(`UPDATE accounts SET secret = ? WHERE id = ?`, secret, id)
 	return err
@@ -184,7 +199,7 @@ func (s *Store) SaveResult(id int64, r *core.Result) error {
 			return err
 		}
 	}
-	if _, err := tx.Exec(`DELETE FROM quota_snapshots WHERE account_id = ? AND ts < ?`, id, now-90*86400); err != nil {
+	if _, err := tx.Exec(`DELETE FROM quota_snapshots WHERE account_id = ? AND ts < ?`, id, now-s.retentionDays.Load()*86400); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(`UPDATE accounts SET last_poll = ?, last_error = '',
@@ -217,21 +232,28 @@ func (s *Store) LatestQuotas(id int64) ([]core.Quota, error) {
 	return out, rows.Err()
 }
 
-// QuotaHistory returns used_percent samples for one window since the given time, oldest first.
-func (s *Store) QuotaHistory(id int64, window string, since time.Time) ([]float64, error) {
-	rows, err := s.db.Query(`SELECT used_percent FROM quota_snapshots WHERE account_id = ? AND win = ? AND ts >= ? ORDER BY ts`,
+// QuotaSample is one recorded reading of a limit window.
+type QuotaSample struct {
+	TS          int64
+	UsedPercent float64
+	ResetsAt    int64
+}
+
+// QuotaHistory returns samples for one window since the given time, oldest first.
+func (s *Store) QuotaHistory(id int64, window string, since time.Time) ([]QuotaSample, error) {
+	rows, err := s.db.Query(`SELECT ts, used_percent, resets_at FROM quota_snapshots WHERE account_id = ? AND win = ? AND ts >= ? ORDER BY ts`,
 		id, window, since.Unix())
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []float64
+	var out []QuotaSample
 	for rows.Next() {
-		var v float64
-		if err := rows.Scan(&v); err != nil {
+		var q QuotaSample
+		if err := rows.Scan(&q.TS, &q.UsedPercent, &q.ResetsAt); err != nil {
 			return nil, err
 		}
-		out = append(out, v)
+		out = append(out, q)
 	}
 	return out, rows.Err()
 }

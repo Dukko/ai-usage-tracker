@@ -1,0 +1,27 @@
+{{define "content"}}
+<div class="page-head">
+  <div><h1>Accounts</h1><p class="muted">Everything this tracker checks. Open one for charts, forecasts and actions.</p></div>
+  {{if .CanEdit}}<a class="btn btn-primary" href="/accounts/new">{{template "icon-plus"}}Add account</a>{{end}}
+</div>
+{{if .Accounts}}
+<section class="panel">
+  <ul class="acct-list">
+  {{range .Accounts}}
+    <li>
+      {{template "badge" .}}
+      <div class="grow">
+        <a class="strong" href="/accounts/{{.ID}}">{{.Name}}</a>
+        <div class="muted small">{{.ProviderLabel}}{{if .Plan}} · {{.Plan}}{{end}}</div>
+      </div>
+      <div class="acct-meta">
+        {{if .LastError}}<span class="lvl-crit small"><span class="dot dot-crit" aria-hidden="true"></span>Error</span>
+        {{else}}<span class="muted small"><span class="dot dot-ok" aria-hidden="true"></span>{{if .IsPush}}pushed{{else}}updated{{end}} {{ago .LastPoll}}</span>{{end}}
+      </div>
+    </li>
+  {{end}}
+  </ul>
+</section>
+{{else}}
+<div class="empty"><h2>No accounts yet</h2>{{if .CanEdit}}<a class="btn btn-primary" href="/accounts/new">{{template "icon-plus"}}Add your first account</a>{{end}}</div>
+{{end}}
+{{end}}

@@ -1,17 +1,47 @@
 {{define "base"}}<!doctype html>
-<html lang="en">
+<html lang="en" data-theme="{{.Theme}}"{{if .Follow}} data-theme-light="{{.LightTheme}}" data-theme-dark="{{.DarkTheme}}"{{end}}{{if .Compact}} data-density="compact"{{end}}>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{template "title" .}} · AI Usage</title>
+<meta name="referrer" content="same-origin">
+<title>{{.Title}} · AI Usage</title>
+<script src="/static/theme.js"></script>
+<link rel="preload" href="/static/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/themes.css">
 <link rel="stylesheet" href="/static/style.css">
-{{block "head" .}}{{end}}
+<script src="/static/app.js" defer></script>
+{{block "head" .Data}}{{end}}
 </head>
 <body>
-<header>
-  <a class="brand" href="/">AI Usage</a>
-  <nav><a class="btn" href="/accounts/new">Add account</a></nav>
+{{if .User}}
+<header class="topbar">
+  <div class="topbar-in">
+    <a class="brand" href="/">{{template "logo"}}<span>AI Usage</span></a>
+    <nav class="nav" aria-label="Main">
+      <a href="/"{{if eq .Nav "dashboard"}} aria-current="page"{{end}}>Dashboard</a>
+      <a href="/accounts"{{if eq .Nav "accounts"}} aria-current="page"{{end}}>Accounts</a>
+      <a href="/settings"{{if eq .Nav "settings"}} aria-current="page"{{end}}>Settings</a>
+    </nav>
+    <div class="tools">
+      {{if .User.IsAdmin}}
+      <form method="post" action="/accounts/refresh"><button class="btn">{{template "icon-refresh"}}<span class="hide-sm">Refresh all</span></button></form>
+      {{end}}
+      <form method="post" action="/theme/next">
+        <input type="hidden" name="back" value="" data-current-url>
+        <button class="btn" aria-label="Switch theme, now {{.ThemeLabel}}" title="Next theme">{{template "icon-theme"}}<span class="hide-sm">{{.ThemeLabel}}</span></button>
+      </form>
+      <div class="who">
+        <span class="avatar" aria-hidden="true">{{initial .User.Username}}</span>
+        <span class="hide-sm">{{.User.Username}}</span>
+        <form method="post" action="/logout"><button class="icon-btn" aria-label="Sign out" title="Sign out">{{template "icon-signout"}}</button></form>
+      </div>
+    </div>
+  </div>
 </header>
-<main>{{template "content" .}}</main>
+{{end}}
+<main class="{{if .User}}wrap{{else}}auth-shell{{end}}">
+{{if .Flash}}<div class="flash" role="status">{{.Flash}}</div>{{end}}
+{{template "content" .Data}}
+</main>
 </body>
 </html>{{end}}

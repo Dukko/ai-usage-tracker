@@ -129,7 +129,9 @@ func (o openRouter) keyInfo(ctx context.Context, key string, res *core.Result) e
 		res.Plan = "free tier"
 	}
 	if d := r.Data; d.Limit != nil && *d.Limit > 0 && d.LimitRemaining != nil {
-		q := core.Quota{Window: "key limit", UsedPercent: (*d.Limit - *d.LimitRemaining) / *d.Limit * 100}
+		used := *d.Limit - *d.LimitRemaining
+		q := core.Quota{Window: "key limit", UsedPercent: used / *d.Limit * 100,
+			Detail: fmt.Sprintf("$%.2f of $%.2f", used, *d.Limit)}
 		if d.LimitReset != nil && *d.LimitReset != "" {
 			q.Window = fmt.Sprintf("key limit (%s)", *d.LimitReset)
 			q.ResetsAt = nextReset(*d.LimitReset, time.Now().UTC())

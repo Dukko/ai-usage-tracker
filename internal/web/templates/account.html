@@ -1,67 +1,156 @@
-{{define "title"}}{{.Name}}{{end}}
 {{define "content"}}
-<div class="card-head">
-  <div>
-    <h1>{{.Name}}</h1>
-    <div class="muted">{{.ProviderLabel}}{{if .Plan}} · {{.Plan}}{{end}} · {{if .IsPush}}last push{{else}}updated{{end}} {{ago .LastPoll}}</div>
-  </div>
-  <div class="actions">
-    {{if .IsPush}}
-    <form method="post" action="/accounts/{{.ID}}/token" onsubmit="return confirm('Issue a new token? The current one stops working.')"><button class="ghost-btn">New push token</button></form>
-    {{else}}
-    <form method="post" action="/accounts/{{.ID}}/poll"><input type="hidden" name="back" value="/accounts/{{.ID}}"><button>Refresh now</button></form>
-    {{end}}
-    <form method="post" action="/accounts/{{.ID}}/delete" onsubmit="return confirm('Delete this account and all its history?')"><button class="danger">Delete</button></form>
-  </div>
-</div>
-{{if .LastError}}<p class="error">{{.LastError}}</p>{{end}}
+<nav class="crumbs" aria-label="Breadcrumb"><a href="/accounts">Accounts</a><span aria-hidden="true">/</span><span>{{.Name}}</span></nav>
 
-{{if .IsOAuth}}
-<section class="card">
-  <h2>Rate-limit windows</h2>
-  {{range .Quotas}}
-  <div class="quota">
-    <div class="row"><span>{{.Window}}</span><strong>{{pct .UsedPercent}}</strong></div>
-    <div class="bar"><div class="fill {{.Level}}" style="{{.Style}}"></div></div>
-    {{if or .ResetsIn .Detail}}<div class="muted small">{{.Detail}}{{if and .ResetsIn .Detail}} · {{end}}{{if .ResetsIn}}resets {{.ResetsIn}}{{end}}</div>{{end}}
-    {{if .Spark}}<div class="muted small">last 30 days</div>{{.Spark}}{{end}}
+<div class="acct-top">
+  <div class="acct-id">
+    <span class="pbadge big" style="{{.Badge}}" aria-hidden="true">{{.Initials}}</span>
+    <div>
+      <div class="title-row"><h1>{{.Name}}</h1>{{if .Plan}}<span class="pill">{{.Plan}}</span>{{end}}</div>
+      <div class="muted">{{.ProviderLabel}} · added {{date .CreatedAt}} · {{if .IsPush}}last push{{else}}updated{{end}} {{ago .LastPoll}}</div>
+    </div>
   </div>
-  {{else}}<p class="muted">No quota data yet.</p>{{end}}
-</section>
-{{else}}
-<section class="card">
-  <div class="stats">
-    <div><div class="stat">{{money .CostToday}}</div><div class="muted small">today</div></div>
-    <div><div class="stat">{{money .Cost30}}</div><div class="muted small">30 days</div></div>
-    <div><div class="stat">{{tokens .Tokens30}}</div><div class="muted small">tokens / 30d</div></div>
-    {{if .Balance}}<div><div class="stat">{{money (deref .Balance)}}</div><div class="muted small">balance</div></div>{{end}}
-  </div>
-  {{range .Quotas}}
-  <div class="quota">
-    <div class="row"><span>{{.Window}}</span><strong>{{pct .UsedPercent}}</strong></div>
-    <div class="bar"><div class="fill {{.Level}}" style="{{.Style}}"></div></div>
-    {{if or .ResetsIn .Detail}}<div class="muted small">{{.Detail}}{{if and .ResetsIn .Detail}} · {{end}}{{if .ResetsIn}}resets {{.ResetsIn}}{{end}}</div>{{end}}
+  {{if .CanEdit}}
+  <div class="actions">
+    <details class="pop">
+      <summary class="btn">{{template "icon-edit"}}Rename</summary>
+      <form method="post" action="/accounts/{{.ID}}/rename" class="pop-body">
+        <label for="rename">New name</label>
+        <input id="rename" name="name" value="{{.Name}}" required maxlength="100">
+        <button class="btn btn-primary">Save</button>
+      </form>
+    </details>
+    {{if .IsPush}}
+    <form method="post" action="/accounts/{{.ID}}/token" data-confirm="Issue a new push token? The current one stops working."><button class="btn">{{template "icon-key"}}New push token</button></form>
+    {{else}}
+    <form method="post" action="/accounts/{{.ID}}/poll"><input type="hidden" name="back" value="/accounts/{{.ID}}"><button class="btn">{{template "icon-refresh"}}Refresh now</button></form>
+    {{end}}
+    <form method="post" action="/accounts/{{.ID}}/delete" data-confirm="Delete {{.Name}} and all its history?"><button class="btn btn-danger">{{template "icon-trash"}}Delete</button></form>
   </div>
   {{end}}
-  {{.Chart}}
+</div>
+
+{{template "error-note" .LastError}}
+
+<div class="tiles small-tiles">
+  {{range .Tiles}}
+  <div class="tile">
+    <div class="tile-label">{{.Label}}</div>
+    <div class="tile-value{{if .Level}} lvl-{{.Level}}{{end}}">{{.Value}}</div>
+    <div class="tile-sub">{{.Sub}}</div>
+  </div>
+  {{end}}
+</div>
+
+{{if .IsOAuth}}
+<section class="panel" aria-labelledby="win-h">
+  <h2 id="win-h">Limit windows · last 30 days</h2>
+  {{range .Quotas}}
+  <div class="window">
+    <div class="window-info">
+      <div class="q-top"><span class="q-name strong">{{.Label}}</span><span class="big-pct lvl-{{.Level}}">{{pct .UsedPercent}}</span></div>
+      <div class="meter thick"><span class="fill-{{.Level}}" style="{{.Fill}}"></span></div>
+      <div class="muted small">{{if .ResetsIn}}resets {{.ResetsIn}} · {{end}}{{if .Detail}}{{.Detail}} · {{end}}peak {{pct .Peak}} in 30 days</div>
+      {{if .Forecast}}<div class="fc-line lvl-{{.FcLevel}}">{{template "icon-trend"}}{{.Forecast}}</div>{{end}}
+    </div>
+    {{.Chart}}
+  </div>
+  {{else}}<p class="muted">No limit data yet.</p>{{end}}
+  {{if .Quotas}}<p class="muted small">Dashed line: the {{.Warn}}% warning level from Settings. Forecasts assume you keep the average pace since each window began.</p>{{end}}
+</section>
+{{else}}
+
+<section class="panel" id="chart" aria-labelledby="chart-h">
+  <div class="panel-head">
+    <h2 id="chart-h">Daily {{.Chart.Metric}} · last 30 days{{if .Chart.HasFc}} and 14-day forecast{{end}}</h2>
+    {{if .Metrics}}<div role="group" aria-label="Metric">{{template "seg" .Metrics}}</div>{{end}}
+  </div>
+  <div class="chart">
+    <div class="y-axis" aria-hidden="true">{{range .Chart.Axis}}<span>{{.}}</span>{{end}}</div>
+    <div class="chart-main">
+      <div class="bars big" role="img" aria-label="Daily {{.Chart.Metric}} for 30 days{{if .Chart.HasFc}}, then a 14-day forecast at the current rate{{end}}">
+        {{range .Chart.Bars}}<span class="{{.Class}}" style="{{.Style}}" title="{{.Title}}"></span>{{end}}
+      </div>
+      <div class="axis{{if .Chart.HasFc}} with-fc{{end}}">
+        <div class="axis-past"><span>{{.Chart.Start}}</span><span class="strong">Today</span></div>
+        {{if .Chart.HasFc}}<div class="axis-fc"><span>Forecast</span><span>{{.Chart.FcEnd}}</span></div>{{end}}
+      </div>
+    </div>
+  </div>
+  {{if .Chart.HasFc}}
+  <div class="legend">
+    <span><i class="sw sw-actual"></i>Actual</span>
+    <span><i class="sw sw-fc"></i>Forecast at current rate</span>
+    {{if .Chart.OverFrom}}<span><i class="sw sw-over"></i>Past the limit (from ~{{.Chart.OverFrom}})</span>{{end}}
+  </div>
+  {{end}}
 </section>
 
-{{if .Models}}
-<section class="card">
-  <h2>By model (30 days)</h2>
-  <div class="table-wrap"><table>
-    <thead><tr><th>Model</th><th>Input</th><th>Output</th><th>Cache read</th><th>Cache write</th><th>Total</th></tr></thead>
-    <tbody>{{range .Models}}<tr><td>{{.Model}}</td><td>{{tokens .Input}}</td><td>{{tokens .Output}}</td><td>{{tokens .CacheRead}}</td><td>{{tokens .CacheWrite}}</td><td>{{tokens .Tokens}}</td></tr>{{end}}</tbody>
-  </table></div>
+{{with .Forecast}}
+<section class="panel" aria-labelledby="fc-h">
+  <div class="panel-head">
+    <div>
+      <h2 id="fc-h">Forecast</h2>
+      <div class="muted small">Straight-line estimate from your recent average spend</div>
+    </div>
+    <div class="inline-ctl"><span class="muted small">Average over</span><div role="group" aria-label="Forecast basis">{{template "seg" $.Bases}}</div></div>
+  </div>
+  <div class="tiles inner">
+    <div class="tile flat"><div class="tile-label">Burn rate</div><div class="tile-value">{{money .Rate}}/day</div><div class="tile-sub">{{.Basis}}-day average</div></div>
+    <div class="tile flat"><div class="tile-label">Projected for {{.MonthName}}</div><div class="tile-value">{{money .MonthTotal}}</div><div class="tile-sub">{{money .SpentMonth}} spent so far</div></div>
+    {{if .HasLimit}}
+      {{if .LimitHits}}
+      <div class="tile flat"><div class="tile-label">Limit reached</div><div class="tile-value lvl-warn">~{{.LimitDate}}</div><div class="tile-sub">{{if .LimitReset}}before it resets {{.LimitReset}}{{else}}{{money .LimitLeft}} left{{end}}</div></div>
+      {{else}}
+      <div class="tile flat"><div class="tile-label">Limit reached</div><div class="tile-value lvl-ok">Not this cycle</div><div class="tile-sub">resets {{.LimitReset}} with room to spare</div></div>
+      {{end}}
+    {{end}}
+    {{if .HasBalance}}
+    <div class="tile flat"><div class="tile-label">Balance runs out</div><div class="tile-value lvl-{{.BalanceLvl}}">~{{.BalanceDate}}</div><div class="tile-sub">about {{days .BalanceDays}} days</div></div>
+    {{end}}
+  </div>
 </section>
 {{end}}
 
-<section class="card">
-  <h2>Daily</h2>
+<div class="split">
+  <section class="panel grow" aria-labelledby="models-h">
+    <h2 id="models-h">By model · 30 days</h2>
+    {{if .Models}}
+    <div class="table-wrap"><table>
+      <thead><tr><th scope="col">Model</th><th scope="col">Requests</th><th scope="col">Input</th><th scope="col">Output</th><th scope="col">Cache</th><th scope="col">Tokens</th></tr></thead>
+      <tbody>{{range .Models}}<tr>
+        <td><div class="strong">{{.Model}}</div><div class="share"><span style="{{.Share}}"></span></div></td>
+        <td>{{tokens .Requests}}</td><td>{{tokens .Input}}</td><td>{{tokens .Output}}</td><td>{{tokens (.CacheRead)}} / {{tokens .CacheWrite}}</td><td class="strong">{{tokens .Tokens}}</td>
+      </tr>{{end}}</tbody>
+    </table></div>
+    {{else}}<p class="muted">No per-model usage in the last 30 days.</p>{{end}}
+  </section>
+  <aside class="side">
+    {{if .Quotas}}
+    <section class="panel" aria-labelledby="lim-h">
+      <h2 id="lim-h">Limits</h2>
+      {{range .Quotas}}{{template "quota" .}}{{end}}
+    </section>
+    {{end}}
+    <section class="panel" aria-labelledby="det-h">
+      <h2 id="det-h">Details</h2>
+      <dl class="details">
+        <dt>Service</dt><dd>{{.ProviderLabel}}</dd>
+        <dt>Connected with</dt><dd>{{.CredLabel}}</dd>
+        <dt>Checked</dt><dd>{{if .IsPush}}when your machine pushes{{else}}{{.Interval}}{{end}}</dd>
+        <dt>Added</dt><dd>{{date .CreatedAt}}</dd>
+      </dl>
+    </section>
+  </aside>
+</div>
+
+{{if .Days}}
+<details class="panel daily">
+  <summary><h2>Daily numbers</h2></summary>
   <div class="table-wrap"><table>
-    <thead><tr><th>Day (UTC)</th><th>Cost</th><th>Input</th><th>Output</th><th>Cache read</th><th>Cache write</th></tr></thead>
-    <tbody>{{range .Days}}<tr><td>{{.Day}}</td><td>{{money .USD}}</td><td>{{tokens .Input}}</td><td>{{tokens .Output}}</td><td>{{tokens .CacheRead}}</td><td>{{tokens .CacheWrite}}</td></tr>{{end}}</tbody>
+    <thead><tr><th scope="col">Day (UTC)</th><th scope="col">Cost</th><th scope="col">Requests</th><th scope="col">Input</th><th scope="col">Output</th><th scope="col">Cache read</th><th scope="col">Cache write</th></tr></thead>
+    <tbody>{{range .Days}}<tr><td>{{.Day}}</td><td>{{money .USD}}</td><td>{{tokens .Requests}}</td><td>{{tokens .Input}}</td><td>{{tokens .Output}}</td><td>{{tokens .CacheRead}}</td><td>{{tokens .CacheWrite}}</td></tr>{{end}}</tbody>
   </table></div>
-</section>
+</details>
+{{end}}
 {{end}}
 {{end}}

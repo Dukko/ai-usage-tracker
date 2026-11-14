@@ -1,0 +1,37 @@
+{{define "content"}}
+<div class="auth">
+  <div class="auth-brand">{{template "logo"}}<span>AI Usage</span></div>
+  <section class="auth-card" aria-labelledby="auth-h">
+  {{if .Locked}}
+    <div class="lock-ic" aria-hidden="true"><svg class="ic" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg></div>
+    <h1 id="auth-h">Sign-in paused</h1>
+    <p class="muted">Too many wrong passwords from this network. Try again in {{.LockedFor}}.</p>
+    <p class="muted small">If you forgot your password, another admin can reset it in Settings.</p>
+  {{else if .Setup}}
+    <h1 id="auth-h">Create the admin account</h1>
+    <p class="muted">This is a new install. Enter the setup code from the server log to claim it.</p>
+    {{if .Error}}<div class="alert" role="alert">{{template "icon-alert"}}<span>{{.Error}}</span></div>{{end}}
+    <form method="post" action="/setup" class="form">
+      <div class="field"><label for="code">Setup code</label><input id="code" name="code" required autocomplete="one-time-code" spellcheck="false" placeholder="XXXX-XXXX" class="mono"></div>
+      <div class="field"><label for="username">Username</label><input id="username" name="username" value="{{.Username}}" required autocomplete="username"></div>
+      <div class="field"><label for="password">Password</label><input id="password" name="password" type="password" required minlength="8" autocomplete="new-password"><span class="hint">At least 8 characters.</span></div>
+      <div class="field"><label for="confirm">Confirm password</label><input id="confirm" name="confirm" type="password" required minlength="8" autocomplete="new-password"></div>
+      <button class="btn btn-primary block">Create account</button>
+    </form>
+    <p class="muted small">Look for <code>setup_code</code> in <code>docker logs ai-usage-tracker</code>.</p>
+  {{else}}
+    <h1 id="auth-h">Sign in</h1>
+    <p class="muted">to see your AI usage</p>
+    {{if .Error}}<div class="alert" role="alert">{{template "icon-alert"}}<span>{{.Error}}</span></div>{{end}}
+    <form method="post" action="/login" class="form">
+      <input type="hidden" name="next" value="{{.Next}}">
+      <div class="field"><label for="username">Username</label><input id="username" name="username" value="{{.Username}}" required autocomplete="username" autofocus></div>
+      <div class="field"><label for="password">Password</label><input id="password" name="password" type="password" required autocomplete="current-password"></div>
+      <label class="check"><input type="checkbox" name="remember" checked> Keep me signed in for 30 days</label>
+      <button class="btn btn-primary block">Sign in</button>
+    </form>
+  {{end}}
+  </section>
+  <p class="muted small center">Self-hosted. Your keys never leave this server.</p>
+</div>
+{{end}}

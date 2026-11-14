@@ -1,10 +1,10 @@
-{{define "title"}}{{.Name}} push token{{end}}
 {{define "content"}}
+<nav class="crumbs" aria-label="Breadcrumb"><a href="/accounts">Accounts</a><span aria-hidden="true">/</span><span>{{.Name}}</span></nav>
 <h1>{{.Name}}</h1>
 <p class="muted">{{.Label}}</p>
-<section class="card">
+<section class="panel narrow">
   <h2>Push token</h2>
-  <p>Copy it now. It is shown only once (you can issue a new one from the account page).</p>
+  <p>Copy it now. It's shown only once, but you can issue a new one from the account page.</p>
   <pre class="code">{{.Token}}</pre>
   <h2>Send usage from the machine running {{.Command}}</h2>
   <p class="muted small">Push once:</p>
@@ -12,6 +12,6 @@
   <p class="muted small">Or keep it running, e.g. as a systemd user service or in tmux:</p>
   <pre class="code">TRACKER_URL={{.URL}} TRACKER_PUSH_TOKEN={{.Token}} ai-usage-tracker push {{.Command}} -every 10m</pre>
   <p class="muted small">Add <code>-dry-run</code> to see what would be sent. If the server URL above is wrong (e.g. behind a reverse proxy), set <code>TRACKER_PUBLIC_URL</code>.</p>
-  <p><a class="btn" href="/accounts/{{.ID}}">Go to account</a></p>
+  <p><a class="btn btn-primary" href="/accounts/{{.ID}}">Go to account</a></p>
 </section>
 {{end}}

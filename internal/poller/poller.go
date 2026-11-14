@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"ai-usage-tracker/internal/core"
@@ -19,24 +20,45 @@ import (
 type Poller struct {
 	st       *store.Store
 	box      *secrets.Box
-	interval time.Duration
 	mu       sync.Mutex // serializes polls so token refreshes never race
+	interval atomic.Int64
+	changed  chan struct{}
 }
 
 func New(st *store.Store, box *secrets.Box, interval time.Duration) *Poller {
-	return &Poller{st: st, box: box, interval: interval}
+	p := &Poller{st: st, box: box, changed: make(chan struct{}, 1)}
+	p.interval.Store(int64(interval))
+	return p
+}
+
+// Interval is the time between automatic checks.
+func (p *Poller) Interval() time.Duration { return time.Duration(p.interval.Load()) }
+
+// SetInterval changes the time between checks; the next check is rescheduled from now.
+func (p *Poller) SetInterval(d time.Duration) {
+	if d < time.Minute {
+		d = time.Minute
+	}
+	p.interval.Store(int64(d))
+	select {
+	case p.changed <- struct{}{}:
+	default:
+	}
 }
 
 func (p *Poller) Run(ctx context.Context) {
 	p.PollAll(ctx)
-	t := time.NewTicker(p.interval)
+	t := time.NewTimer(p.Interval())
 	defer t.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-p.changed:
+			t.Reset(p.Interval())
 		case <-t.C:
 			p.PollAll(ctx)
+			t.Reset(p.Interval())
 		}
 	}
 }

@@ -12,21 +12,42 @@ A small self-hosted dashboard for keeping an eye on AI usage across accounts:
 - **OpenCode (local sessions)**: usage from your local OpenCode sessions (every provider it talks to: OpenCode Zen/Go,
   OpenRouter, …), pushed to the tracker by a small client command.
 
-One Go binary, SQLite storage, server-rendered UI with no JavaScript, and credentials encrypted at rest.
+One Go binary, SQLite storage, a server-rendered UI that works without JavaScript, and credentials encrypted at rest.
+
+The UI has a sign-in page with admin and read-only viewer accounts, 19 editor themes (Dracula, Catppuccin, Gruvbox,
+Nord, Tokyo Night, … in dark and light versions), spend forecasts ("balance lasts to ~Dec 21") and limit
+forecasts ("hits 100% in about 50m, before it resets"), and a Settings page for alerts, polling, users and API tokens.
 
 ## Run
 
 ```sh
-cp .env.example .env    # set TRACKER_PASSWORD
+cp .env.example .env    # optional: set TRACKER_PASSWORD to create the admin up front
 docker compose up -d --build
-# → http://localhost:8080  (any username, password from .env)
+# → http://localhost:8080
 ```
 
-Or without Docker:
+Or without Docker: `go run .`
 
-```sh
-TRACKER_PASSWORD=secret go run .
-```
+### First sign-in
+
+- If `TRACKER_PASSWORD` is set and there are no users yet, an admin called `admin` (or `TRACKER_USERNAME`) is
+  created with that password. Changing the variable later does nothing: change passwords in Settings.
+- Otherwise the server prints a one-time **setup code** to its log (`docker logs ai-usage-tracker`). The first
+  visit asks for that code before it lets anyone create the admin account, so a fresh install exposed to the
+  internet can't be claimed by someone else.
+
+Admins can add **viewer** users in Settings. Viewers see the dashboard and account pages and can change their own
+theme and password, but can't add, refresh or delete accounts or change site settings.
+
+### Exposing it publicly (Cloudflare Tunnel, reverse proxy)
+
+- Stored API keys and OAuth tokens are never sent to the browser; pages only show usage numbers.
+- Sign-in is rate limited per IP: after 5 wrong passwords that address waits 15 minutes. Behind a proxy every
+  request seems to come from the proxy, so set `TRACKER_TRUST_PROXY=true` so the real client IP
+  (`CF-Connecting-IP`, `X-Real-IP` or `X-Forwarded-For`) is used. Only set it when the port isn't reachable
+  directly, since otherwise clients could fake those headers.
+- Set `TRACKER_PUBLIC_URL=https://…` so session cookies are marked `Secure`.
+- Pages send a strict Content-Security-Policy and can't be framed. Forms are protected against cross-site requests.
 
 ## Configuration
 
@@ -34,9 +55,11 @@ TRACKER_PASSWORD=secret go run .
 |---|---|---|
 | `TRACKER_ADDR` | `:8080` | Listen address |
 | `TRACKER_DATA_DIR` | `./data` | SQLite DB + generated encryption key |
-| `TRACKER_PASSWORD` | *(none)* | HTTP basic-auth password. Leave unset only on a trusted network. |
-| `TRACKER_POLL_INTERVAL` | `10m` | How often every account is polled (min `1m`) |
-| `TRACKER_PUBLIC_URL` | *(from request)* | Base URL shown in push setup instructions, e.g. when behind a reverse proxy |
+| `TRACKER_PASSWORD` | *(none)* | Creates the first admin with this password if there are no users yet |
+| `TRACKER_USERNAME` | `admin` | Username for that first admin |
+| `TRACKER_POLL_INTERVAL` | `10m` | How often every account is polled (min `1m`). Once an admin saves an interval in Settings, that wins. |
+| `TRACKER_PUBLIC_URL` | *(from request)* | Public base URL: used in push setup instructions, and `https://` marks cookies `Secure` |
+| `TRACKER_TRUST_PROXY` | `false` | Trust `CF-Connecting-IP` / `X-Forwarded-*` from a reverse proxy (for rate limiting and HTTPS detection) |
 | `TRACKER_SECRET_KEY` | *(none)* | Passphrase for encrypting credentials. If unset, a random key is written to `$TRACKER_DATA_DIR/secret.key`. Back that file up with the DB. |
 
 ## Adding accounts
@@ -121,7 +144,9 @@ A separate OAuth login avoids that.
 ## JSON API
 
 `GET /api/accounts` returns every account with its latest quotas, or its cost and token totals.
-It's handy for Home Assistant, a status bar, or other widgets. It uses the same basic auth as the UI.
+It's handy for Home Assistant, a status bar, or other widgets. Create a read-only token in
+Settings › API tokens and send it as `Authorization: Bearer <token>`; a signed-in browser session works too.
+Tokens only open this endpoint, not the UI.
 
 ```json
 [{"id":1,"name":"Max","provider":"claude-sub","plan":"max","last_poll":1763130000,
@@ -129,7 +154,7 @@ It's handy for Home Assistant, a status bar, or other widgets. It uses the same 
 ```
 
 `GET /healthz` is unauthenticated, for container health checks. `POST /api/ingest` is used by push clients
-and authenticates with its push token instead of the dashboard password.
+and authenticates with its own push token.
 
 ## Layout
 
@@ -141,7 +166,8 @@ internal/push/              push client: local data readers (OpenCode) + /api/in
 internal/poller/            periodic polling, token-refresh persistence
 internal/store/             SQLite schema + queries
 internal/secrets/           AES-GCM credential encryption
-internal/web/               handlers, templates, CSS (embedded in the binary)
+internal/web/               handlers, sign-in and sessions, settings, themes, forecasts, templates and CSS
+                            (embedded in the binary, including the Inter and Space Grotesk fonts, both SIL OFL)
 ```
 
 Adding a provider means implementing `providers.Provider` (plus any of `OAuthProvider`, `DeviceProvider`,

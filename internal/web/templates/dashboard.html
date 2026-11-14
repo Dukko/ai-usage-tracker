@@ -1,52 +1,123 @@
-{{define "title"}}Dashboard{{end}}
 {{define "content"}}
-{{if not .Accounts}}
+{{if not .Total}}
 <div class="empty">
+  {{if .Hidden}}
+  <h1>All accounts are hidden</h1>
+  <p class="muted">You've hidden every account from your dashboard.</p>
+  <a class="btn btn-primary" href="/settings#dashboard">Choose accounts to show</a>
+  {{else}}
   <h1>No accounts yet</h1>
-  <p class="muted">Connect an API admin key or a Claude / ChatGPT subscription to start tracking.</p>
-  <a class="btn" href="/accounts/new">Add your first account</a>
+  <p class="muted">Connect a subscription, an API key, or a local tool like OpenCode to start tracking.</p>
+  {{if .CanEdit}}<a class="btn btn-primary" href="/accounts/new">{{template "icon-plus"}}Add your first account</a>{{end}}
+  {{end}}
 </div>
 {{else}}
-{{if .Total30}}<p class="muted">API spend, last 30 days: <strong>{{money .Total30}}</strong></p>{{end}}
-<div class="grid">
-{{range .Accounts}}
-<section class="card">
-  <div class="card-head">
-    <div>
-      <h2><a href="/accounts/{{.ID}}">{{.Name}}</a></h2>
-      <div class="muted small">{{.ProviderLabel}}{{if .Plan}} · {{.Plan}}{{end}}</div>
-    </div>
-    {{if not .IsPush}}<form method="post" action="/accounts/{{.ID}}/poll"><button class="ghost" title="Refresh now" aria-label="Refresh now">↻</button></form>{{end}}
+<div class="page-head">
+  <div>
+    <h1>Overview</h1>
+    <p class="muted">{{.Total}} {{if eq .Total 1}}account{{else}}accounts{{end}}{{if .Hidden}} shown, {{.Hidden}} hidden{{end}} · refreshed {{ago .LastPoll}}</p>
   </div>
-  {{if .LastError}}<p class="error">{{.LastError}}</p>{{end}}
-  {{if .IsOAuth}}
-    {{range .Quotas}}
-    <div class="quota">
-      <div class="row"><span>{{.Window}}</span><strong>{{pct .UsedPercent}}</strong></div>
-      <div class="bar"><div class="fill {{.Level}}" style="{{.Style}}"></div></div>
-      {{if or .ResetsIn .Detail}}<div class="muted small">{{.Detail}}{{if and .ResetsIn .Detail}} · {{end}}{{if .ResetsIn}}resets {{.ResetsIn}}{{end}}</div>{{end}}
-      {{.Spark}}
-    </div>
-    {{else}}<p class="muted">No quota data yet.</p>{{end}}
-  {{else}}
-    <div class="stats">
-      <div><div class="stat">{{money .CostToday}}</div><div class="muted small">today</div></div>
-      <div><div class="stat">{{money .Cost30}}</div><div class="muted small">30 days</div></div>
-      <div><div class="stat">{{tokens .Tokens30}}</div><div class="muted small">tokens / 30d</div></div>
-      {{if .Balance}}<div><div class="stat">{{money (deref .Balance)}}</div><div class="muted small">balance</div></div>{{end}}
-    </div>
-    {{range .Quotas}}
-    <div class="quota">
-      <div class="row"><span>{{.Window}}</span><strong>{{pct .UsedPercent}}</strong></div>
-      <div class="bar"><div class="fill {{.Level}}" style="{{.Style}}"></div></div>
-      {{if or .ResetsIn .Detail}}<div class="muted small">{{.Detail}}{{if and .ResetsIn .Detail}} · {{end}}{{if .ResetsIn}}resets {{.ResetsIn}}{{end}}</div>{{end}}
-    </div>
+  <div class="controls">
+    <div role="group" aria-label="Show">{{template "seg" .Filters}}</div>
+    <div role="group" aria-label="Range">{{template "seg" .Ranges}}</div>
+  </div>
+</div>
+
+<div class="tiles">
+  <div class="tile">
+    <div class="tile-label">Pay-as-you-go spend · {{.RangeLabel}}</div>
+    <div class="tile-value">{{money .Spend}}</div>
+    <div class="tile-sub">across {{.SpendAccounts}} {{if eq .SpendAccounts 1}}account{{else}}accounts{{end}}</div>
+  </div>
+  <div class="tile">
+    <div class="tile-label">Closest to a limit</div>
+    {{with .Closest}}
+    <div class="tile-value lvl-{{.Level}}">{{pct .Pct}}</div>
+    <div class="tile-sub">{{.Account}} · {{.Window}}{{if .Reset}}, resets {{.Reset}}{{end}}</div>
+    {{else}}
+    <div class="tile-value">–</div>
+    <div class="tile-sub">no limits tracked</div>
     {{end}}
-    {{.Chart}}
+  </div>
+  <div class="tile">
+    <div class="tile-label">Tokens · {{.RangeLabel}}</div>
+    <div class="tile-value">{{tokens .Tokens}}</div>
+    <div class="tile-sub">API and local sessions</div>
+  </div>
+  <div class="tile">
+    <div class="tile-label">Accounts</div>
+    <div class="tile-value">{{.Total}}</div>
+    {{if .Attention}}<div class="tile-sub attn"><span class="dot dot-crit" aria-hidden="true"></span>{{.Attention}} {{if eq .Attention 1}}needs{{else}}need{{end}} attention</div>
+    {{else}}<div class="tile-sub"><span class="dot dot-ok" aria-hidden="true"></span>all working</div>{{end}}
+  </div>
+</div>
+
+<div class="sections{{if .APIFirst}} api-first{{end}}">
+{{if and .ShowSubs .Subs}}
+<section class="sec-subs" aria-labelledby="subs-h">
+  <div class="sec-head"><h2 id="subs-h">Subscription limits</h2><span class="muted">Rate-limit windows, checked {{.Interval}}</span></div>
+  <div class="cards">
+  {{range .Subs}}
+    <article class="card">
+      {{template "card-head" .}}
+      {{template "error-note" .LastError}}
+      {{range .Quotas}}{{template "quota" .}}{{else}}<p class="muted">No limit data yet.</p>{{end}}
+      {{if .Spark}}<div class="spark-row"><span>{{.SparkLabel}}</span>{{.Spark}}</div>{{end}}
+      {{template "card-foot" .}}
+    </article>
   {{end}}
-  <div class="muted small foot">{{if .IsPush}}last push{{else}}updated{{end}} {{ago .LastPoll}}</div>
+  </div>
+</section>
+{{end}}
+
+{{if and .ShowAPI .API}}
+<section class="sec-api" aria-labelledby="api-h">
+  <div class="sec-head"><h2 id="api-h">Pay-as-you-go spend</h2><span class="muted">Daily cost and tokens, UTC days</span></div>
+  <div class="cards">
+  {{range .API}}
+    <article class="card">
+      {{template "card-head" .}}
+      {{template "error-note" .LastError}}
+      <div class="stats3">
+        {{if .AnyCost}}
+        <div><div class="stat-label">Today</div><div class="stat">{{money .CostToday}}</div></div>
+        <div><div class="stat-label">{{.RangeDays}} days</div><div class="stat">{{money .CostRange}}</div></div>
+        {{end}}
+        {{if .Balance}}<div><div class="stat-label">Balance</div><div class="stat">{{money (deref .Balance)}}</div></div>
+        {{else}}<div><div class="stat-label">Tokens</div><div class="stat">{{tokens .TokensRange}}</div></div>{{end}}
+      </div>
+      <div>
+        <div class="bars{{if gt .RangeDays 30}} dense{{end}}" role="img" aria-label="Daily {{if .AnyCost}}spend{{else}}tokens{{end}}, last {{.RangeDays}} days">
+          {{range .Bars}}<span class="{{.Class}}" style="{{.Style}}" title="{{.Title}}"></span>{{end}}
+        </div>
+        <div class="axis"><span>{{.RangeDays}} days ago</span><span>Today</span></div>
+      </div>
+      {{range .Quotas}}{{template "quota" .}}{{end}}
+      {{with .Forecast}}{{if .Summary}}<div class="fc-note">{{template "icon-trend"}}<span>{{.Summary}}</span></div>{{end}}{{end}}
+      {{template "card-foot" .}}
+    </article>
+  {{end}}
+  </div>
 </section>
 {{end}}
 </div>
 {{end}}
+{{end}}
+
+{{define "card-head"}}
+<div class="card-head">
+  {{template "badge" .}}
+  <div class="card-title">
+    <a href="/accounts/{{.ID}}">{{.Name}}</a>
+    <div class="muted small">{{.ProviderLabel}}</div>
+  </div>
+  {{if .Plan}}<span class="pill">{{.Plan}}</span>{{end}}
+</div>
+{{end}}
+
+{{define "card-foot"}}
+<div class="card-foot">
+  <span class="dot {{if .LastError}}dot-crit{{else}}dot-ok{{end}}" aria-hidden="true"></span>
+  {{if .IsPush}}Last push{{else}}Updated{{end}} {{ago .LastPoll}}
+</div>
 {{end}}
