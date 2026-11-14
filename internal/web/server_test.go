@@ -148,6 +148,12 @@ func TestAuthRequiredAndHeaders(t *testing.T) {
 	if w := e.do("GET", "/api/accounts", "10.0.0.1", "", nil); w.Code != http.StatusUnauthorized {
 		t.Errorf("api without auth: %d", w.Code)
 	}
+	if w := e.do("GET", "/favicon.ico", "10.0.0.1", "", nil); w.Code != 200 || w.Header().Get("Content-Type") != "image/png" {
+		t.Errorf("favicon: %d", w.Code)
+	}
+	if w := e.do("GET", "/static/favicon.svg", "10.0.0.1", "", nil); w.Code != 200 {
+		t.Errorf("svg favicon: %d", w.Code)
+	}
 	if w := e.do("GET", "/login", "10.0.0.1", "", nil); w.Code != 200 {
 		t.Errorf("login page: %d", w.Code)
 	}

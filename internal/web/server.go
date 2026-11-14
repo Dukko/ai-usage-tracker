@@ -101,6 +101,15 @@ func New(st *store.Store, box *secrets.Box, pl *poller.Poller, cfg Config) (http
 		w.Header().Set("Cache-Control", "public, max-age=3600")
 		w.Write([]byte(css))
 	})
+	icon, err := fs.ReadFile(static, "favicon-32.png")
+	if err != nil {
+		return nil, err
+	}
+	mux.HandleFunc("GET /favicon.ico", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png") // every browser accepts a PNG here
+		w.Header().Set("Cache-Control", "public, max-age=86400")
+		w.Write(icon)
+	})
 	mux.HandleFunc("GET /login", s.loginForm)
 	mux.HandleFunc("POST /login", s.login)
 	mux.HandleFunc("GET /setup", s.setupForm)
@@ -162,7 +171,7 @@ func securityHeaders(next http.Handler) http.Handler {
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Referrer-Policy", "same-origin")
 		h.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
-		if r.URL.Path != "/healthz" && !strings.HasPrefix(r.URL.Path, "/static/") && r.URL.Path != "/themes.css" {
+		if r.URL.Path != "/healthz" && !strings.HasPrefix(r.URL.Path, "/static/") && r.URL.Path != "/themes.css" && r.URL.Path != "/favicon.ico" {
 			h.Set("Cache-Control", "no-store")
 		}
 		next.ServeHTTP(w, r)
