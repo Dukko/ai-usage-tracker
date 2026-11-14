@@ -25,6 +25,7 @@ import (
 const (
 	KindAPIKey = "api_key"
 	KindOAuth  = "oauth"
+	KindPush   = "push"
 )
 
 type Provider interface {

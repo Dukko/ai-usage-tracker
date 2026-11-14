@@ -3,10 +3,14 @@
 <div class="card-head">
   <div>
     <h1>{{.Name}}</h1>
-    <div class="muted">{{.ProviderLabel}}{{if .Plan}} · {{.Plan}}{{end}} · updated {{ago .LastPoll}}</div>
+    <div class="muted">{{.ProviderLabel}}{{if .Plan}} · {{.Plan}}{{end}} · {{if .IsPush}}last push{{else}}updated{{end}} {{ago .LastPoll}}</div>
   </div>
   <div class="actions">
+    {{if .IsPush}}
+    <form method="post" action="/accounts/{{.ID}}/token" onsubmit="return confirm('Issue a new token? The current one stops working.')"><button class="ghost-btn">New push token</button></form>
+    {{else}}
     <form method="post" action="/accounts/{{.ID}}/poll"><input type="hidden" name="back" value="/accounts/{{.ID}}"><button>Refresh now</button></form>
+    {{end}}
     <form method="post" action="/accounts/{{.ID}}/delete" onsubmit="return confirm('Delete this account and all its history?')"><button class="danger">Delete</button></form>
   </div>
 </div>
@@ -30,7 +34,15 @@
     <div><div class="stat">{{money .CostToday}}</div><div class="muted small">today</div></div>
     <div><div class="stat">{{money .Cost30}}</div><div class="muted small">30 days</div></div>
     <div><div class="stat">{{tokens .Tokens30}}</div><div class="muted small">tokens / 30d</div></div>
+    {{if .Balance}}<div><div class="stat">{{money (deref .Balance)}}</div><div class="muted small">balance</div></div>{{end}}
   </div>
+  {{range .Quotas}}
+  <div class="quota">
+    <div class="row"><span>{{.Window}}</span><strong>{{pct .UsedPercent}}</strong></div>
+    <div class="bar"><div class="fill {{.Level}}" style="{{.Style}}"></div></div>
+    {{if .ResetsIn}}<div class="muted small">resets {{.ResetsIn}}</div>{{end}}
+  </div>
+  {{end}}
   {{.Chart}}
 </section>
 

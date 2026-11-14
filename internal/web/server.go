@@ -3,14 +3,19 @@ package web
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
 	"embed"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"html/template"
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -19,6 +24,7 @@ import (
 	"ai-usage-tracker/internal/core"
 	"ai-usage-tracker/internal/poller"
 	"ai-usage-tracker/internal/providers"
+	"ai-usage-tracker/internal/push"
 	"ai-usage-tracker/internal/secrets"
 	"ai-usage-tracker/internal/store"
 )
@@ -34,19 +40,21 @@ type pending struct {
 }
 
 type Server struct {
-	st       *store.Store
-	box      *secrets.Box
-	pl       *poller.Poller
-	password string
-	pages    map[string]*template.Template
+	st        *store.Store
+	box       *secrets.Box
+	pl        *poller.Poller
+	password  string
+	publicURL string
+	pages     map[string]*template.Template
 
 	mu      sync.Mutex
 	pending map[string]pending
 }
 
 func New(st *store.Store, box *secrets.Box, pl *poller.Poller, password string) (http.Handler, error) {
-	s := &Server{st: st, box: box, pl: pl, password: password, pages: map[string]*template.Template{}, pending: map[string]pending{}}
-	for _, page := range []string{"dashboard", "new", "oauth", "account"} {
+	s := &Server{st: st, box: box, pl: pl, password: password, pages: map[string]*template.Template{}, pending: map[string]pending{},
+		publicURL: strings.TrimRight(os.Getenv("TRACKER_PUBLIC_URL"), "/")}
+	for _, page := range []string{"dashboard", "new", "oauth", "account", "push"} {
 		t, err := template.New("").Funcs(funcs).ParseFS(assets, "templates/base.html", "templates/"+page+".html")
 		if err != nil {
 			return nil, fmt.Errorf("parse %s: %w", page, err)
@@ -70,7 +78,10 @@ func New(st *store.Store, box *secrets.Box, pl *poller.Poller, password string) 
 	mux.HandleFunc("GET /accounts/{id}", s.accountDetail)
 	mux.HandleFunc("POST /accounts/{id}/poll", s.pollAccount)
 	mux.HandleFunc("POST /accounts/{id}/delete", s.deleteAccount)
+	mux.HandleFunc("POST /accounts/push", s.createPush)
+	mux.HandleFunc("POST /accounts/{id}/token", s.regenerateToken)
 	mux.HandleFunc("GET /api/accounts", s.apiAccounts)
+	mux.HandleFunc("POST /api/ingest", s.ingest)
 
 	return s.auth(http.NewCrossOriginProtection().Handler(mux)), nil
 }
@@ -80,7 +91,8 @@ func (s *Server) auth(next http.Handler) http.Handler {
 		return next
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/healthz" {
+		// /api/ingest authenticates with its own per-account token.
+		if r.URL.Path == "/healthz" || r.URL.Path == "/api/ingest" {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -154,6 +166,7 @@ func (s *Server) accountDetail(w http.ResponseWriter, r *http.Request) {
 type newPage struct {
 	APIProviders   []providers.APIKeyProvider
 	OAuthProviders []providers.OAuthProvider
+	PushProviders  []providers.PushProvider
 	Error          string
 }
 
@@ -163,6 +176,8 @@ func (s *Server) newPageData(errMsg string) newPage {
 		switch x := prov.(type) {
 		case providers.OAuthProvider:
 			p.OAuthProviders = append(p.OAuthProviders, x)
+		case providers.PushProvider:
+			p.PushProviders = append(p.PushProviders, x)
 		case providers.APIKeyProvider:
 			p.APIProviders = append(p.APIProviders, x)
 		}
@@ -352,6 +367,7 @@ type apiAccount struct {
 	CostToday *float64   `json:"cost_today_usd,omitempty"`
 	Cost30d   *float64   `json:"cost_30d_usd,omitempty"`
 	Tokens30d *int64     `json:"tokens_30d,omitempty"`
+	Balance   *float64   `json:"balance_usd,omitempty"`
 }
 
 func (s *Server) apiAccounts(w http.ResponseWriter, r *http.Request) {
@@ -367,16 +383,185 @@ func (s *Server) apiAccounts(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		item := apiAccount{ID: a.ID, Name: a.Name, Provider: a.Provider, Plan: a.Plan, LastPoll: a.LastPoll, LastError: a.LastError}
-		if v.IsOAuth {
-			for _, q := range v.Quotas {
-				item.Quotas = append(item.Quotas, apiQuota{Window: q.Window, UsedPercent: q.UsedPercent, ResetsAt: q.ResetsAt})
-			}
-		} else {
+		item := apiAccount{ID: a.ID, Name: a.Name, Provider: a.Provider, Plan: a.Plan, LastPoll: a.LastPoll,
+			LastError: a.LastError, Balance: a.Balance}
+		for _, q := range v.Quotas {
+			item.Quotas = append(item.Quotas, apiQuota{Window: q.Window, UsedPercent: q.UsedPercent, ResetsAt: q.ResetsAt})
+		}
+		if !v.IsOAuth {
 			item.CostToday, item.Cost30d, item.Tokens30d = &v.CostToday, &v.Cost30, &v.Tokens30
 		}
 		out = append(out, item)
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(out)
+}
+
+// ---- push accounts ----
+
+type pushPage struct {
+	ID      int64
+	Name    string
+	Label   string
+	Command string
+	Token   string
+	URL     string
+}
+
+// newPushToken returns a token of the form "<account id>.<secret>" and the
+// credentials holding the secret's hash. Only the hash is stored.
+func newPushToken(id int64) (string, *core.Credentials, error) {
+	b := make([]byte, 24)
+	if _, err := rand.Read(b); err != nil {
+		return "", nil, err
+	}
+	secret := base64.RawURLEncoding.EncodeToString(b)
+	sum := sha256.Sum256([]byte(secret))
+	return fmt.Sprintf("%d.%s", id, secret), &core.Credentials{TokenHash: hex.EncodeToString(sum[:])}, nil
+}
+
+func (s *Server) baseURL(r *http.Request) string {
+	if s.publicURL != "" {
+		return s.publicURL
+	}
+	scheme := "http"
+	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+		scheme = "https"
+	}
+	return scheme + "://" + r.Host
+}
+
+// setPushToken issues a fresh token for the account and renders the setup page.
+func (s *Server) setPushToken(w http.ResponseWriter, r *http.Request, a store.Account, prov providers.PushProvider) {
+	token, creds, err := newPushToken(a.ID)
+	if err == nil {
+		var plain, sealed []byte
+		if plain, err = json.Marshal(creds); err == nil {
+			if sealed, err = s.box.Seal(plain); err == nil {
+				err = s.st.UpdateSecret(a.ID, sealed)
+			}
+		}
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	s.render(w, "push", pushPage{ID: a.ID, Name: a.Name, Label: prov.Label(), Command: prov.PushCommand(), Token: token, URL: s.baseURL(r)})
+}
+
+func (s *Server) createPush(w http.ResponseWriter, r *http.Request) {
+	prov, ok := providers.Get(r.FormValue("provider"))
+	pp, isPush := prov.(providers.PushProvider)
+	if !ok || !isPush {
+		s.newAccountError(w, "Unknown local tool.")
+		return
+	}
+	name := strings.TrimSpace(r.FormValue("name"))
+	if name == "" {
+		name = prov.Label()
+	}
+	// Placeholder secret; replaced with the real token hash once the id is known.
+	id, err := s.st.CreateAccount(name, prov.ID(), []byte{})
+	if err != nil {
+		s.newAccountError(w, err.Error())
+		return
+	}
+	a, err := s.st.GetAccount(id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	s.setPushToken(w, r, a, pp)
+}
+
+func (s *Server) regenerateToken(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	a, err := s.st.GetAccount(id)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	prov, _ := providers.Get(a.Provider)
+	pp, isPush := prov.(providers.PushProvider)
+	if !isPush {
+		http.Error(w, "not a push account", http.StatusBadRequest)
+		return
+	}
+	s.setPushToken(w, r, a, pp)
+}
+
+func jsonError(w http.ResponseWriter, status int, msg string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(map[string]string{"error": msg})
+}
+
+// ingest accepts usage from push clients. Auth: "Authorization: Bearer <id>.<secret>".
+func (s *Server) ingest(w http.ResponseWriter, r *http.Request) {
+	token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	idStr, secret, ok2 := strings.Cut(token, ".")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if !ok || !ok2 || err != nil || secret == "" {
+		jsonError(w, http.StatusUnauthorized, "missing or malformed token")
+		return
+	}
+	a, err := s.st.GetAccount(id)
+	if err != nil {
+		jsonError(w, http.StatusUnauthorized, "invalid token")
+		return
+	}
+	if prov, ok := providers.Get(a.Provider); !ok || prov.Kind() != providers.KindPush {
+		jsonError(w, http.StatusUnauthorized, "invalid token")
+		return
+	}
+	var creds core.Credentials
+	plain, err := s.box.Open(a.Secret)
+	if err == nil {
+		err = json.Unmarshal(plain, &creds)
+	}
+	sum := sha256.Sum256([]byte(secret))
+	if err != nil || creds.TokenHash == "" ||
+		subtle.ConstantTimeCompare([]byte(hex.EncodeToString(sum[:])), []byte(creds.TokenHash)) != 1 {
+		jsonError(w, http.StatusUnauthorized, "invalid token")
+		return
+	}
+
+	var p push.Payload
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<20)).Decode(&p); err != nil {
+		jsonError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	if len(p.Rows) > 100_000 {
+		jsonError(w, http.StatusRequestEntityTooLarge, "too many rows")
+		return
+	}
+	res := &core.Result{}
+	costs := map[string]float64{}
+	for i, row := range p.Rows {
+		if _, err := time.Parse(time.DateOnly, row.Day); err != nil {
+			jsonError(w, http.StatusBadRequest, fmt.Sprintf("row %d: bad day %q", i, row.Day))
+			return
+		}
+		if row.Model == "" || len(row.Model) > 300 || row.Input < 0 || row.Output < 0 ||
+			row.CacheRead < 0 || row.CacheWrite < 0 || row.Requests < 0 || row.CostUSD < 0 {
+			jsonError(w, http.StatusBadRequest, fmt.Sprintf("row %d: invalid values", i))
+			return
+		}
+		res.Usage = append(res.Usage, core.DailyUsage{Day: row.Day, Model: row.Model, Input: row.Input, Output: row.Output,
+			CacheRead: row.CacheRead, CacheWrite: row.CacheWrite, Requests: row.Requests})
+		costs[row.Day] += row.CostUSD
+	}
+	for day, usd := range costs {
+		res.Costs = append(res.Costs, core.DailyCost{Day: day, USD: usd})
+	}
+	if err := s.st.SaveResult(a.ID, res); err != nil {
+		jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"ok": true, "rows": len(p.Rows)})
 }

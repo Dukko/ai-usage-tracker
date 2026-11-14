@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -25,6 +26,13 @@ func env(key, def string) string {
 }
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "push" {
+		if err := runPush(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "push:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if err := run(); err != nil {
 		slog.Error("fatal", "err", err)
 		os.Exit(1)

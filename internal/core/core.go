@@ -11,6 +11,8 @@ type Credentials struct {
 	ExpiresAt    int64  `json:"expires_at,omitempty"` // unix seconds
 	AccountID    string `json:"account_id,omitempty"`
 	Plan         string `json:"plan,omitempty"`
+	// TokenHash is the sha256 (hex) of a push account's ingest token.
+	TokenHash string `json:"token_hash,omitempty"`
 }
 
 // DailyUsage is token usage for one model on one UTC day.
@@ -44,4 +46,6 @@ type Result struct {
 	Costs  []DailyCost
 	Quotas []Quota
 	Plan   string
+	// Balance is remaining prepaid credit in USD, if the provider reports one.
+	Balance *float64
 }

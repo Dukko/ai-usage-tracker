@@ -25,6 +25,7 @@ type accountView struct {
 	store.Account
 	ProviderLabel string
 	IsOAuth       bool
+	IsPush        bool
 	Quotas        []quotaView
 	CostToday     float64
 	Cost30        float64
@@ -40,13 +41,15 @@ func (s *Server) buildView(a store.Account, detail bool) (accountView, error) {
 	if ok {
 		v.ProviderLabel = prov.Label()
 		v.IsOAuth = prov.Kind() == providers.KindOAuth
+		v.IsPush = prov.Kind() == providers.KindPush
 	}
 
-	if v.IsOAuth {
-		quotas, err := s.st.LatestQuotas(a.ID)
-		if err != nil {
-			return v, err
-		}
+	// Subscriptions report only quotas; some API providers (OpenRouter key limits) report them too.
+	quotas, err := s.st.LatestQuotas(a.ID)
+	if err != nil {
+		return v, err
+	}
+	{
 		histDays := 7
 		if detail {
 			histDays = 30
@@ -67,6 +70,8 @@ func (s *Server) buildView(a store.Account, detail bool) (accountView, error) {
 			qv.Spark = sparkline(downsample(hist, 160), 100)
 			v.Quotas = append(v.Quotas, qv)
 		}
+	}
+	if v.IsOAuth {
 		return v, nil
 	}
 
@@ -231,4 +236,5 @@ var funcs = template.FuncMap{
 	"tokens": tokens,
 	"ago":    ago,
 	"pct":    func(f float64) string { return fmt.Sprintf("%.0f%%", f) },
+	"deref":  func(f *float64) float64 { return *f },
 }

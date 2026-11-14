@@ -16,7 +16,7 @@
       <h2><a href="/accounts/{{.ID}}">{{.Name}}</a></h2>
       <div class="muted small">{{.ProviderLabel}}{{if .Plan}} · {{.Plan}}{{end}}</div>
     </div>
-    <form method="post" action="/accounts/{{.ID}}/poll"><button class="ghost" title="Refresh now" aria-label="Refresh now">↻</button></form>
+    {{if not .IsPush}}<form method="post" action="/accounts/{{.ID}}/poll"><button class="ghost" title="Refresh now" aria-label="Refresh now">↻</button></form>{{end}}
   </div>
   {{if .LastError}}<p class="error">{{.LastError}}</p>{{end}}
   {{if .IsOAuth}}
@@ -33,10 +33,18 @@
       <div><div class="stat">{{money .CostToday}}</div><div class="muted small">today</div></div>
       <div><div class="stat">{{money .Cost30}}</div><div class="muted small">30 days</div></div>
       <div><div class="stat">{{tokens .Tokens30}}</div><div class="muted small">tokens / 30d</div></div>
+      {{if .Balance}}<div><div class="stat">{{money (deref .Balance)}}</div><div class="muted small">balance</div></div>{{end}}
     </div>
+    {{range .Quotas}}
+    <div class="quota">
+      <div class="row"><span>{{.Window}}</span><strong>{{pct .UsedPercent}}</strong></div>
+      <div class="bar"><div class="fill {{.Level}}" style="{{.Style}}"></div></div>
+      {{if .ResetsIn}}<div class="muted small">resets {{.ResetsIn}}</div>{{end}}
+    </div>
+    {{end}}
     {{.Chart}}
   {{end}}
-  <div class="muted small foot">updated {{ago .LastPoll}}</div>
+  <div class="muted small foot">{{if .IsPush}}last push{{else}}updated{{end}} {{ago .LastPoll}}</div>
 </section>
 {{end}}
 </div>

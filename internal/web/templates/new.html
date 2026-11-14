@@ -31,15 +31,26 @@
 </section>
 
 <section class="card">
-  <h2>API usage (admin key)</h2>
-  <p class="muted">Tracks daily token usage and cost for a whole organization. Needs an <em>admin</em> key; regular API keys cannot read usage.</p>
+  <h2>API usage</h2>
+  <p class="muted">Tracks daily token usage and cost. Anthropic and OpenAI need an organization <em>admin</em> key. OpenRouter works with any key, but a <em>management</em> key adds 30 days of per-model history.</p>
   <form method="post" action="/accounts/apikey" class="form">
     <label>Provider
       <select name="provider">{{range .APIProviders}}<option value="{{.ID}}">{{.Label}} ({{.KeyHint}})</option>{{end}}</select>
     </label>
     <label>Name <input name="name" placeholder="e.g. Work org"></label>
-    <label>Admin API key <input name="key" type="password" autocomplete="off" required></label>
+    <label>API key <input name="key" type="password" autocomplete="off" required></label>
     <button>Add</button>
+  </form>
+</section>
+<section class="card">
+  <h2>Local tool (push)</h2>
+  <p class="muted">For tools that keep usage on your machine. You get a token and run <code>ai-usage-tracker push</code> there to send daily totals.</p>
+  <form method="post" action="/accounts/push" class="form">
+    <label>Tool
+      <select name="provider">{{range .PushProviders}}<option value="{{.ID}}">{{.Label}}</option>{{end}}</select>
+    </label>
+    <label>Name <input name="name" placeholder="e.g. OpenCode laptop"></label>
+    <button>Create &amp; get token</button>
   </form>
 </section>
 {{end}}

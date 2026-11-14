@@ -60,10 +60,29 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
-	return &Store{db: db}, nil
+	s := &Store{db: db}
+	if err := s.migrate(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	return s, nil
 }
 
 func (s *Store) Close() error { return s.db.Close() }
+
+// migrate adds columns introduced after the first release.
+func (s *Store) migrate() error {
+	var n int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('accounts') WHERE name = 'balance'`).Scan(&n); err != nil {
+		return err
+	}
+	if n == 0 {
+		if _, err := s.db.Exec(`ALTER TABLE accounts ADD COLUMN balance REAL`); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 type Account struct {
 	ID        int64
@@ -74,13 +93,14 @@ type Account struct {
 	CreatedAt int64
 	LastPoll  int64
 	LastError string
+	Balance   *float64 // remaining prepaid credit in USD, nil if unknown
 }
 
-const accountCols = `id, name, provider, secret, plan, created_at, last_poll, last_error`
+const accountCols = `id, name, provider, secret, plan, created_at, last_poll, last_error, balance`
 
 func scanAccount(r interface{ Scan(...any) error }) (Account, error) {
 	var a Account
-	err := r.Scan(&a.ID, &a.Name, &a.Provider, &a.Secret, &a.Plan, &a.CreatedAt, &a.LastPoll, &a.LastError)
+	err := r.Scan(&a.ID, &a.Name, &a.Provider, &a.Secret, &a.Plan, &a.CreatedAt, &a.LastPoll, &a.LastError, &a.Balance)
 	return a, err
 }
 
@@ -162,8 +182,9 @@ func (s *Store) SaveResult(id int64, r *core.Result) error {
 	if _, err := tx.Exec(`DELETE FROM quota_snapshots WHERE account_id = ? AND ts < ?`, id, now-90*86400); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(`UPDATE accounts SET last_poll = ?, last_error = '', plan = CASE WHEN ? != '' THEN ? ELSE plan END WHERE id = ?`,
-		now, r.Plan, r.Plan, id); err != nil {
+	if _, err := tx.Exec(`UPDATE accounts SET last_poll = ?, last_error = '',
+		plan = CASE WHEN ? != '' THEN ? ELSE plan END, balance = COALESCE(?, balance) WHERE id = ?`,
+		now, r.Plan, r.Plan, r.Balance, id); err != nil {
 		return err
 	}
 	return tx.Commit()
