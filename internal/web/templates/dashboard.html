@@ -1,0 +1,44 @@
+{{define "title"}}Dashboard{{end}}
+{{define "content"}}
+{{if not .Accounts}}
+<div class="empty">
+  <h1>No accounts yet</h1>
+  <p class="muted">Connect an API admin key or a Claude / ChatGPT subscription to start tracking.</p>
+  <a class="btn" href="/accounts/new">Add your first account</a>
+</div>
+{{else}}
+{{if .Total30}}<p class="muted">API spend, last 30 days: <strong>{{money .Total30}}</strong></p>{{end}}
+<div class="grid">
+{{range .Accounts}}
+<section class="card">
+  <div class="card-head">
+    <div>
+      <h2><a href="/accounts/{{.ID}}">{{.Name}}</a></h2>
+      <div class="muted small">{{.ProviderLabel}}{{if .Plan}} · {{.Plan}}{{end}}</div>
+    </div>
+    <form method="post" action="/accounts/{{.ID}}/poll"><button class="ghost" title="Refresh now" aria-label="Refresh now">↻</button></form>
+  </div>
+  {{if .LastError}}<p class="error">{{.LastError}}</p>{{end}}
+  {{if .IsOAuth}}
+    {{range .Quotas}}
+    <div class="quota">
+      <div class="row"><span>{{.Window}}</span><strong>{{pct .UsedPercent}}</strong></div>
+      <div class="bar"><div class="fill {{.Level}}" style="{{.Style}}"></div></div>
+      {{if .ResetsIn}}<div class="muted small">resets {{.ResetsIn}}</div>{{end}}
+      {{.Spark}}
+    </div>
+    {{else}}<p class="muted">No quota data yet.</p>{{end}}
+  {{else}}
+    <div class="stats">
+      <div><div class="stat">{{money .CostToday}}</div><div class="muted small">today</div></div>
+      <div><div class="stat">{{money .Cost30}}</div><div class="muted small">30 days</div></div>
+      <div><div class="stat">{{tokens .Tokens30}}</div><div class="muted small">tokens / 30d</div></div>
+    </div>
+    {{.Chart}}
+  {{end}}
+  <div class="muted small foot">updated {{ago .LastPoll}}</div>
+</section>
+{{end}}
+</div>
+{{end}}
+{{end}}

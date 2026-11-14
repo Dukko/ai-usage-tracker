@@ -1,0 +1,55 @@
+{{define "title"}}{{.Name}}{{end}}
+{{define "content"}}
+<div class="card-head">
+  <div>
+    <h1>{{.Name}}</h1>
+    <div class="muted">{{.ProviderLabel}}{{if .Plan}} · {{.Plan}}{{end}} · updated {{ago .LastPoll}}</div>
+  </div>
+  <div class="actions">
+    <form method="post" action="/accounts/{{.ID}}/poll"><input type="hidden" name="back" value="/accounts/{{.ID}}"><button>Refresh now</button></form>
+    <form method="post" action="/accounts/{{.ID}}/delete" onsubmit="return confirm('Delete this account and all its history?')"><button class="danger">Delete</button></form>
+  </div>
+</div>
+{{if .LastError}}<p class="error">{{.LastError}}</p>{{end}}
+
+{{if .IsOAuth}}
+<section class="card">
+  <h2>Rate-limit windows</h2>
+  {{range .Quotas}}
+  <div class="quota">
+    <div class="row"><span>{{.Window}}</span><strong>{{pct .UsedPercent}}</strong></div>
+    <div class="bar"><div class="fill {{.Level}}" style="{{.Style}}"></div></div>
+    {{if .ResetsIn}}<div class="muted small">resets {{.ResetsIn}}</div>{{end}}
+    {{if .Spark}}<div class="muted small">last 30 days</div>{{.Spark}}{{end}}
+  </div>
+  {{else}}<p class="muted">No quota data yet.</p>{{end}}
+</section>
+{{else}}
+<section class="card">
+  <div class="stats">
+    <div><div class="stat">{{money .CostToday}}</div><div class="muted small">today</div></div>
+    <div><div class="stat">{{money .Cost30}}</div><div class="muted small">30 days</div></div>
+    <div><div class="stat">{{tokens .Tokens30}}</div><div class="muted small">tokens / 30d</div></div>
+  </div>
+  {{.Chart}}
+</section>
+
+{{if .Models}}
+<section class="card">
+  <h2>By model (30 days)</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Model</th><th>Input</th><th>Output</th><th>Cache read</th><th>Cache write</th><th>Total</th></tr></thead>
+    <tbody>{{range .Models}}<tr><td>{{.Model}}</td><td>{{tokens .Input}}</td><td>{{tokens .Output}}</td><td>{{tokens .CacheRead}}</td><td>{{tokens .CacheWrite}}</td><td>{{tokens .Tokens}}</td></tr>{{end}}</tbody>
+  </table></div>
+</section>
+{{end}}
+
+<section class="card">
+  <h2>Daily</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Day (UTC)</th><th>Cost</th><th>Input</th><th>Output</th><th>Cache read</th><th>Cache write</th></tr></thead>
+    <tbody>{{range .Days}}<tr><td>{{.Day}}</td><td>{{money .USD}}</td><td>{{tokens .Input}}</td><td>{{tokens .Output}}</td><td>{{tokens .CacheRead}}</td><td>{{tokens .CacheWrite}}</td></tr>{{end}}</tbody>
+  </table></div>
+</section>
+{{end}}
+{{end}}

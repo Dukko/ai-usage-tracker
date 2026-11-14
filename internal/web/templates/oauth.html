@@ -1,0 +1,18 @@
+{{define "title"}}Connect {{.Label}}{{end}}
+{{define "content"}}
+<h1>Connect {{.Label}}</h1>
+{{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+<section class="card">
+  <ol class="steps">
+    <li><a class="btn" href="{{.AuthURL}}" target="_blank" rel="noopener noreferrer">Open sign-in page</a></li>
+    <li>{{.Instructions}}</li>
+    <li>
+      <form method="post" action="/oauth/finish" class="form">
+        <input type="hidden" name="pending" value="{{.PendingID}}">
+        <label>Code or URL <input name="code" required autocomplete="off" spellcheck="false"></label>
+        <button>Finish</button>
+      </form>
+    </li>
+  </ol>
+</section>
+{{end}}

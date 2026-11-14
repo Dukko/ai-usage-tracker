@@ -1,0 +1,89 @@
+# AI Usage Tracker
+
+A small self-hosted dashboard for keeping an eye on AI usage across accounts:
+
+- **API accounts (admin key)**: daily token usage by model and daily cost, from the
+  Anthropic Admin API and the OpenAI organization Usage/Costs APIs.
+- **Subscriptions (OAuth)**: rate-limit window usage (5-hour, weekly, …) for
+  **Claude Pro/Max** and **ChatGPT Plus/Pro (Codex)**, connected with an OAuth login.
+
+One Go binary, SQLite storage, server-rendered UI with no JavaScript, and credentials encrypted at rest.
+
+## Run
+
+```sh
+cp .env.example .env    # set TRACKER_PASSWORD
+docker compose up -d --build
+# → http://localhost:8080  (any username, password from .env)
+```
+
+Or without Docker:
+
+```sh
+TRACKER_PASSWORD=secret go run .
+```
+
+## Configuration
+
+| Env var | Default | |
+|---|---|---|
+| `TRACKER_ADDR` | `:8080` | Listen address |
+| `TRACKER_DATA_DIR` | `./data` | SQLite DB + generated encryption key |
+| `TRACKER_PASSWORD` | *(none)* | HTTP basic-auth password. Leave unset only on a trusted network. |
+| `TRACKER_POLL_INTERVAL` | `10m` | How often every account is polled (min `1m`) |
+| `TRACKER_SECRET_KEY` | *(none)* | Passphrase for encrypting credentials. If unset, a random key is written to `$TRACKER_DATA_DIR/secret.key`. Back that file up with the DB. |
+
+## Adding accounts
+
+### API usage (admin key)
+
+Regular API keys cannot read usage, so you need an **admin key**:
+
+- **Anthropic**: Console → Settings → Admin keys (`sk-ant-admin01-…`). Requires an organization.
+- **OpenAI**: Platform → Organization → Admin keys (`sk-admin-…`).
+
+The tracker pulls the last 30 days on every poll and upserts them, so late-arriving data corrects itself.
+
+### Subscriptions (OAuth)
+
+Click **Connect with OAuth**, open the sign-in page, approve access, and paste back:
+
+- **Claude**: the authentication code Claude shows you.
+- **ChatGPT**: you'll land on a `localhost:1455/...` page that fails to load. That's expected:
+  copy the whole URL from the address bar and paste it.
+
+Tokens are refreshed automatically. You can also **import** the credentials file
+from the vendor CLI (`~/.claude/.credentials.json` or `~/.codex/auth.json`), but the
+tracker rotates the refresh token when it refreshes, which can sign that CLI out.
+A separate OAuth login avoids that.
+
+> **Caveat:** subscription tracking reuses the public OAuth clients and the internal usage endpoints that
+> Claude Code and the Codex CLI use. These are **not documented public APIs**. They may change or break, and
+> the provider's terms may not cover this use. Endpoint URLs can be overridden with env vars
+> (`CLAUDE_OAUTH_TOKEN_URL`, `CLAUDE_USAGE_URL`, `CHATGPT_USAGE_URL`, … see `internal/providers/*_sub.go`).
+
+## JSON API
+
+`GET /api/accounts` returns every account with its latest quotas, or its cost and token totals.
+It's handy for Home Assistant, a status bar, or other widgets. It uses the same basic auth as the UI.
+
+```json
+[{"id":1,"name":"Max","provider":"claude-sub","plan":"max","last_poll":1763130000,
+  "quotas":[{"window":"5h","used_percent":23,"resets_at":1763140000},{"window":"7d","used_percent":41,"resets_at":1763500000}]}]
+```
+
+`GET /healthz` is unauthenticated, for container health checks.
+
+## Layout
+
+```
+main.go                     config + wiring
+internal/providers/         one file per provider (anthropic_api, openai_api, claude_sub, chatgpt_sub)
+internal/poller/            periodic polling, token-refresh persistence
+internal/store/             SQLite schema + queries
+internal/secrets/           AES-GCM credential encryption
+internal/web/               handlers, templates, CSS (embedded in the binary)
+```
+
+Adding a provider means implementing `providers.Provider` (plus `OAuthProvider` or `APIKeyProvider`)
+and calling `register` in `init()`.

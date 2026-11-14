@@ -1,0 +1,16 @@
+{{define "base"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{template "title" .}} · AI Usage</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <a class="brand" href="/">AI Usage</a>
+  <nav><a class="btn" href="/accounts/new">Add account</a></nav>
+</header>
+<main>{{template "content" .}}</main>
+</body>
+</html>{{end}}

@@ -1,0 +1,45 @@
+{{define "title"}}Add account{{end}}
+{{define "content"}}
+<h1>Add account</h1>
+{{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+
+<section class="card">
+  <h2>Subscription (OAuth)</h2>
+  <p class="muted">Tracks the 5-hour and weekly usage limits of a Claude Pro/Max or ChatGPT Plus/Pro plan.</p>
+  <form method="post" action="/oauth/start" class="form">
+    <label>Service
+      <select name="provider">{{range .OAuthProviders}}<option value="{{.ID}}">{{.Label}}</option>{{end}}</select>
+    </label>
+    <label>Name <input name="name" placeholder="e.g. Personal Max"></label>
+    <button>Connect with OAuth</button>
+  </form>
+  <details>
+    <summary>Or import credentials from the CLI</summary>
+    <form method="post" action="/accounts/import" class="form">
+      <label>Service
+        <select name="provider">{{range .OAuthProviders}}<option value="{{.ID}}">{{.Label}}</option>{{end}}</select>
+      </label>
+      <label>Name <input name="name"></label>
+      <label>Credentials JSON
+        <textarea name="json" rows="6" required spellcheck="false"></textarea>
+      </label>
+      <ul class="muted small">{{range .OAuthProviders}}<li>{{.Label}}: {{.ImportHint}}</li>{{end}}</ul>
+      <p class="muted small">Note: the tracker refreshes tokens on its own, which can sign the CLI out. Connecting with OAuth above avoids that.</p>
+      <button>Import</button>
+    </form>
+  </details>
+</section>
+
+<section class="card">
+  <h2>API usage (admin key)</h2>
+  <p class="muted">Tracks daily token usage and cost for a whole organization. Needs an <em>admin</em> key; regular API keys cannot read usage.</p>
+  <form method="post" action="/accounts/apikey" class="form">
+    <label>Provider
+      <select name="provider">{{range .APIProviders}}<option value="{{.ID}}">{{.Label}} ({{.KeyHint}})</option>{{end}}</select>
+    </label>
+    <label>Name <input name="name" placeholder="e.g. Work org"></label>
+    <label>Admin API key <input name="key" type="password" autocomplete="off" required></label>
+    <button>Add</button>
+  </form>
+</section>
+{{end}}
