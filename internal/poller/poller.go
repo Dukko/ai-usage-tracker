@@ -73,8 +73,8 @@ func (p *Poller) PollAll(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		if prov, ok := providers.Get(a.Provider); ok && prov.Kind() == providers.KindPush {
-			continue // fed by /api/ingest, nothing to poll
+		if prov, ok := providers.Get(a.Provider); ok && (prov.Kind() == providers.KindPush || prov.Kind() == providers.KindSnapshot) {
+			continue // fed by /api/ingest or a provider push endpoint, nothing to poll
 		}
 		if err := p.Poll(ctx, a.ID); err != nil {
 			slog.Warn("poll failed", "account", a.Name, "provider", a.Provider, "err", err)
@@ -91,7 +91,7 @@ func (p *Poller) Poll(ctx context.Context, id int64) error {
 	if err != nil {
 		return err
 	}
-	if prov, ok := providers.Get(a.Provider); ok && prov.Kind() == providers.KindPush {
+	if prov, ok := providers.Get(a.Provider); ok && (prov.Kind() == providers.KindPush || prov.Kind() == providers.KindSnapshot) {
 		return nil
 	}
 	err = p.poll(ctx, a)

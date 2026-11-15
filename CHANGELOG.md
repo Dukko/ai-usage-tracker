@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+- Added Muse push ingestion: `POST /api/usage/muse` accepts usage snapshots (weekly limit and additional
+  tokens) authenticated with `MUSE_INGEST_TOKEN`, and shows them as a subscription card with history.
+
 ## [0.1.1] - 2026-11-14
 
 - Fixed: OpenCode Go weekly and monthly limit forecasts said "stays near X%" on a new install. They now

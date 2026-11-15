@@ -105,7 +105,8 @@ func run() error {
 	}
 	pl := poller.New(st, box, interval)
 
-	handler, err := web.New(st, box, pl, web.Config{AdminUser: os.Getenv("TRACKER_USERNAME"), AdminPassword: password, TrustProxy: trustProxy})
+	handler, err := web.New(st, box, pl, web.Config{AdminUser: os.Getenv("TRACKER_USERNAME"), AdminPassword: password, TrustProxy: trustProxy,
+		MuseToken: os.Getenv("MUSE_INGEST_TOKEN")})
 	if err != nil {
 		return err
 	}

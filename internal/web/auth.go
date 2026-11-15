@@ -248,7 +248,8 @@ func (s *Server) apiTokenOK(r *http.Request) bool {
 	return err == nil && found
 }
 
-var publicPaths = map[string]bool{"/healthz": true, "/login": true, "/setup": true, "/api/ingest": true, "/themes.css": true, "/favicon.ico": true}
+var publicPaths = map[string]bool{"/healthz": true, "/login": true, "/setup": true, "/api/ingest": true, "/api/usage/muse": true,
+	"/themes.css": true, "/favicon.ico": true}
 
 // authenticate requires a signed-in user for everything except public paths.
 func (s *Server) authenticate(next http.Handler) http.Handler {

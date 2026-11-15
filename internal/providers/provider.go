@@ -25,9 +25,10 @@ import (
 )
 
 const (
-	KindAPIKey = "api_key"
-	KindOAuth  = "oauth"
-	KindPush   = "push"
+	KindAPIKey   = "api_key"
+	KindOAuth    = "oauth"
+	KindPush     = "push"
+	KindSnapshot = "snapshot" // rate-limit snapshots pushed by the vendor, never polled
 )
 
 type Provider interface {

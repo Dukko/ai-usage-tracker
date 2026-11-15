@@ -3,6 +3,7 @@ package store
 
 import (
 	"database/sql"
+	"errors"
 	"sync/atomic"
 	"time"
 
@@ -47,6 +48,19 @@ CREATE TABLE IF NOT EXISTS quota_snapshots (
 	resets_at    INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS quota_snapshots_idx ON quota_snapshots(account_id, win, ts);
+CREATE TABLE IF NOT EXISTS muse_snapshots (
+	account_id                   INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+	recorded_at                  INTEGER NOT NULL,
+	source                       TEXT    NOT NULL DEFAULT 'muse',
+	plan                         TEXT    NOT NULL DEFAULT '',
+	weekly_percent               REAL,
+	weekly_resets_at             INTEGER,
+	additional_percent           REAL,
+	additional_tokens_remaining  INTEGER,
+	received_at                  INTEGER NOT NULL,
+	PRIMARY KEY (account_id, recorded_at)
+);
+CREATE INDEX IF NOT EXISTS muse_snapshots_idx ON muse_snapshots(account_id, recorded_at);
 `
 
 type Store struct {
@@ -149,6 +163,15 @@ func (s *Store) GetAccount(id int64) (Account, error) {
 	return scanAccount(s.db.QueryRow(`SELECT `+accountCols+` FROM accounts WHERE id = ?`, id))
 }
 
+// FindAccountByProvider returns the first account fed by the given provider.
+func (s *Store) FindAccountByProvider(provider string) (Account, error) {
+	a, err := scanAccount(s.db.QueryRow(`SELECT `+accountCols+` FROM accounts WHERE provider = ? ORDER BY id LIMIT 1`, provider))
+	if errors.Is(err, sql.ErrNoRows) {
+		return a, ErrNotFound
+	}
+	return a, err
+}
+
 func (s *Store) DeleteAccount(id int64) error {
 	_, err := s.db.Exec(`DELETE FROM accounts WHERE id = ?`, id)
 	return err
@@ -208,6 +231,192 @@ func (s *Store) SaveResult(id int64, r *core.Result) error {
 		return err
 	}
 	return tx.Commit()
+}
+
+// SaveMuseSnapshot appends one Muse reading. Pushes are deduplicated on
+// (account, recorded_at); a duplicate returns the reading stored earlier.
+// The reading is also projected into quota_snapshots using the last known
+// value of every field, so a partial push never hides a limit window.
+func (s *Store) SaveMuseSnapshot(accountID int64, snap core.MuseSnapshot) (core.MuseSnapshot, bool, error) {
+	if snap.Source == "" {
+		snap.Source = "muse"
+	}
+	if snap.ReceivedAt == 0 {
+		snap.ReceivedAt = time.Now().Unix()
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return snap, false, err
+	}
+	defer tx.Rollback()
+
+	prev, err := latestMuseValues(tx, accountID)
+	if err != nil {
+		return snap, false, err
+	}
+	res, err := tx.Exec(`INSERT INTO muse_snapshots(account_id, recorded_at, source, plan, weekly_percent,
+		weekly_resets_at, additional_percent, additional_tokens_remaining, received_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(account_id, recorded_at) DO NOTHING`,
+		accountID, snap.RecordedAt, snap.Source, snap.Plan, ptrValue(snap.WeeklyPercent), nullableInt(snap.WeeklyResetsAt),
+		ptrValue(snap.AdditionalPercent), ptrValue(snap.AdditionalTokensRemaining), snap.ReceivedAt)
+	if err != nil {
+		return snap, false, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return snap, false, err
+	}
+	if n == 0 {
+		// Already stored (the pusher retried): return the original reading.
+		got, err := museSnapshotAt(tx, accountID, snap.RecordedAt)
+		if err != nil {
+			return snap, false, err
+		}
+		if err := tx.Commit(); err != nil {
+			return snap, false, err
+		}
+		return got, false, nil
+	}
+
+	merged := prev
+	if snap.Plan != "" {
+		merged.Plan = snap.Plan
+	}
+	if snap.WeeklyPercent != nil {
+		merged.WeeklyPercent = snap.WeeklyPercent
+	}
+	if snap.WeeklyResetsAt != 0 {
+		merged.WeeklyResetsAt = snap.WeeklyResetsAt
+	}
+	if snap.AdditionalPercent != nil {
+		merged.AdditionalPercent = snap.AdditionalPercent
+	}
+	if snap.AdditionalTokensRemaining != nil {
+		merged.AdditionalTokensRemaining = snap.AdditionalTokensRemaining
+	}
+	if merged.WeeklyPercent != nil {
+		if _, err := tx.Exec(`INSERT INTO quota_snapshots(account_id, ts, win, used_percent, resets_at, detail)
+			VALUES (?, ?, 'weekly', ?, ?, '')`,
+			accountID, snap.RecordedAt, *merged.WeeklyPercent, merged.WeeklyResetsAt); err != nil {
+			return snap, false, err
+		}
+	}
+	if merged.AdditionalPercent != nil {
+		detail := ""
+		if merged.AdditionalTokensRemaining != nil {
+			detail = "≈" + core.HumanTokens(*merged.AdditionalTokensRemaining) + " tokens left (approximate)"
+		}
+		if _, err := tx.Exec(`INSERT INTO quota_snapshots(account_id, ts, win, used_percent, resets_at, detail)
+			VALUES (?, ?, 'additional tokens', ?, 0, ?)`,
+			accountID, snap.RecordedAt, *merged.AdditionalPercent, detail); err != nil {
+			return snap, false, err
+		}
+	}
+
+	if _, err := tx.Exec(`UPDATE accounts SET last_poll = ?, last_error = '',
+		plan = CASE WHEN ? != '' THEN ? ELSE plan END WHERE id = ?`,
+		snap.ReceivedAt, snap.Plan, snap.Plan, accountID); err != nil {
+		return snap, false, err
+	}
+
+	cutoff := snap.ReceivedAt - s.retentionDays.Load()*86400
+	if _, err := tx.Exec(`DELETE FROM muse_snapshots WHERE account_id = ? AND recorded_at < ?`, accountID, cutoff); err != nil {
+		return snap, false, err
+	}
+	if _, err := tx.Exec(`DELETE FROM quota_snapshots WHERE account_id = ? AND ts < ?`, accountID, cutoff); err != nil {
+		return snap, false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return snap, false, err
+	}
+	return snap, true, nil
+}
+
+func ptrValue[T any](p *T) any {
+	if p == nil {
+		return nil
+	}
+	return *p
+}
+
+func nullableInt(n int64) any {
+	if n == 0 {
+		return nil
+	}
+	return n
+}
+
+// latestMuseValues returns the last reported value of each Muse field, newest
+// first, so pushes that omit a line keep the previous reading.
+func latestMuseValues(tx *sql.Tx, accountID int64) (core.MuseSnapshot, error) {
+	rows, err := tx.Query(`SELECT plan, weekly_percent, weekly_resets_at, additional_percent,
+		additional_tokens_remaining FROM muse_snapshots WHERE account_id = ? ORDER BY recorded_at DESC`, accountID)
+	if err != nil {
+		return core.MuseSnapshot{}, err
+	}
+	defer rows.Close()
+	var out core.MuseSnapshot
+	var plan, weekly, reset, add, tokens bool
+	for rows.Next() {
+		var p string
+		var wp, ap sql.NullFloat64
+		var wr, at sql.NullInt64
+		if err := rows.Scan(&p, &wp, &wr, &ap, &at); err != nil {
+			return out, err
+		}
+		if !plan && p != "" {
+			out.Plan, plan = p, true
+		}
+		if !weekly && wp.Valid {
+			v := wp.Float64
+			out.WeeklyPercent, weekly = &v, true
+		}
+		if !reset && wr.Valid && wr.Int64 != 0 {
+			out.WeeklyResetsAt, reset = wr.Int64, true
+		}
+		if !add && ap.Valid {
+			v := ap.Float64
+			out.AdditionalPercent, add = &v, true
+		}
+		if !tokens && at.Valid {
+			v := at.Int64
+			out.AdditionalTokensRemaining, tokens = &v, true
+		}
+		if plan && weekly && reset && add && tokens {
+			break
+		}
+	}
+	return out, rows.Err()
+}
+
+func museSnapshotAt(tx *sql.Tx, accountID, recordedAt int64) (core.MuseSnapshot, error) {
+	var m core.MuseSnapshot
+	var wp, ap sql.NullFloat64
+	var wr, at sql.NullInt64
+	err := tx.QueryRow(`SELECT source, recorded_at, plan, weekly_percent, weekly_resets_at,
+		additional_percent, additional_tokens_remaining, received_at
+		FROM muse_snapshots WHERE account_id = ? AND recorded_at = ?`, accountID, recordedAt).
+		Scan(&m.Source, &m.RecordedAt, &m.Plan, &wp, &wr, &ap, &at, &m.ReceivedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return m, ErrNotFound
+	}
+	if err != nil {
+		return m, err
+	}
+	if wp.Valid {
+		m.WeeklyPercent = &wp.Float64
+	}
+	if wr.Valid {
+		m.WeeklyResetsAt = wr.Int64
+	}
+	if ap.Valid {
+		m.AdditionalPercent = &ap.Float64
+	}
+	if at.Valid {
+		m.AdditionalTokensRemaining = &at.Int64
+	}
+	return m, nil
 }
 
 func (s *Store) LatestQuotas(id int64) ([]core.Quota, error) {

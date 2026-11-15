@@ -2,6 +2,7 @@ package store
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -58,5 +59,100 @@ func TestSaveAndAggregate(t *testing.T) {
 	}
 	if days, _ := st.DailyTotals(id, 1); days[0].Tokens() != 0 {
 		t.Error("cascade delete failed")
+	}
+}
+
+func TestMuseSnapshotAppendAndMerge(t *testing.T) {
+	st, err := Open(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	id, err := st.CreateAccount("Muse", "muse", []byte{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().Truncate(time.Second)
+	pct12, pct1, pct2, pct20 := 12.0, 1.0, 2.0, 20.0
+	left := int64(1_900_000_000)
+	reset := now.Add(5 * 24 * time.Hour).Unix()
+	full := core.MuseSnapshot{Source: "muse", RecordedAt: now.Unix(), Plan: "free", WeeklyPercent: &pct12,
+		WeeklyResetsAt: reset, AdditionalPercent: &pct1, AdditionalTokensRemaining: &left}
+	got, created, err := st.SaveMuseSnapshot(id, full)
+	if err != nil || !created {
+		t.Fatalf("first push: created=%v err=%v", created, err)
+	}
+	if got.RecordedAt != now.Unix() || got.Plan != "free" {
+		t.Errorf("stored snapshot = %+v", got)
+	}
+	check := func(step string, wantWeekly, wantAdditional float64, wantDetail bool) {
+		t.Helper()
+		quotas, err := st.LatestQuotas(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(quotas) != 2 {
+			t.Fatalf("%s: want 2 quota windows, got %+v", step, quotas)
+		}
+		var weekly, additional core.Quota
+		for _, q := range quotas {
+			switch q.Window {
+			case "weekly":
+				weekly = q
+			case "additional tokens":
+				additional = q
+			}
+		}
+		if weekly.UsedPercent != wantWeekly || weekly.ResetsAt != reset {
+			t.Errorf("%s: weekly = %+v", step, weekly)
+		}
+		if additional.UsedPercent != wantAdditional {
+			t.Errorf("%s: additional = %+v", step, additional)
+		}
+		if wantDetail != strings.Contains(additional.Detail, "1.90B tokens left (approximate)") {
+			t.Errorf("%s: detail = %q", step, additional.Detail)
+		}
+	}
+	check("first push", 12, 1, true)
+
+	// The same reading again is not stored twice.
+	_, created, err = st.SaveMuseSnapshot(id, full)
+	if err != nil || created {
+		t.Fatalf("duplicate push: created=%v err=%v", created, err)
+	}
+	var n int
+	if err := st.db.QueryRow(`SELECT COUNT(*) FROM muse_snapshots WHERE account_id = ?`, id).Scan(&n); err != nil || n != 1 {
+		t.Errorf("after duplicate: %d snapshots, %v", n, err)
+	}
+	check("after duplicate", 12, 1, true)
+
+	// A partial push keeps the last known weekly window and token figure.
+	later := now.Add(6 * time.Hour)
+	partial := core.MuseSnapshot{Source: "muse", RecordedAt: later.Unix(), Plan: "power",
+		AdditionalPercent: &pct2}
+	if _, created, err := st.SaveMuseSnapshot(id, partial); err != nil || !created {
+		t.Fatalf("partial push: created=%v err=%v", created, err)
+	}
+	check("partial push", 12, 2, true)
+
+	// A new weekly value without a new reset time keeps the old reset.
+	latest := later.Add(6 * time.Hour)
+	if _, _, err := st.SaveMuseSnapshot(id, core.MuseSnapshot{Source: "muse", RecordedAt: latest.Unix(),
+		WeeklyPercent: &pct20}); err != nil {
+		t.Fatal(err)
+	}
+	check("weekly update", 20, 2, true)
+	hist, err := st.QuotaHistory(id, "weekly", time.Unix(0, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hist) != 3 || hist[0].UsedPercent != 12 || hist[2].UsedPercent != 20 {
+		t.Errorf("weekly history = %+v", hist)
+	}
+	if err := st.DeleteAccount(id); err != nil {
+		t.Fatal(err)
+	}
+	if quotas, _ := st.LatestQuotas(id); len(quotas) != 0 {
+		t.Error("muse snapshots were not removed with the account")
 	}
 }

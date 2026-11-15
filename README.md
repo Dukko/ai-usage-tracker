@@ -5,8 +5,9 @@ and ChatGPT limits, what your API keys cost per day, and when you'll run out, wi
 
 ![Dashboard](docs/screenshots/dashboard.png)
 
-- **Subscription limits**: 5-hour and weekly windows for **Claude Pro/Max**, **ChatGPT Plus/Pro (Codex)** and
-  **OpenCode Go**, with history and a forecast: *"At this pace: hits 100% in about 50m, before it resets."*
+- **Subscription limits**: 5-hour and weekly windows for **Claude Pro/Max**, **ChatGPT Plus/Pro (Codex)**,
+  **OpenCode Go** and **Muse** (pushed from its VM), with history and a forecast: *"At this pace: hits 100% in
+  about 50m, before it resets."*
 - **Pay-as-you-go spend**: daily cost and tokens per model for the **Anthropic** and **OpenAI** APIs,
   **OpenRouter** (spend, key limits, credit balance), **OpenCode** Console budgets and local OpenCode sessions.
 - **Forecasts**: burn rate, projected month total, and when a balance or key limit runs out. Limit forecasts work
@@ -104,6 +105,7 @@ Everything else is in the Settings page. These environment variables cover start
 | `TRACKER_PUBLIC_URL` | *(from request)* | Public base URL: used in push setup instructions, and `https://` marks cookies `Secure` |
 | `TRACKER_TRUST_PROXY` | `false` | Trust `CF-Connecting-IP` / `X-Forwarded-*` from a reverse proxy |
 | `TRACKER_SECRET_KEY` | *(none)* | Passphrase for encrypting credentials. If unset, a random key is written to `$TRACKER_DATA_DIR/secret.key`. |
+| `MUSE_INGEST_TOKEN` | *(none)* | Bearer token for Muse's usage pushes to `POST /api/usage/muse`. Unset disables the endpoint. Generate with `openssl rand -hex 32`. |
 
 ## Adding accounts
 
@@ -166,6 +168,32 @@ Push tokens are scoped to one account and can be reissued from the account page.
 OpenCode reports cost per message as computed by OpenCode. Requests it routed through OpenRouter also appear
 in an OpenRouter account, so don't add those two totals together.
 
+### Muse (pushed snapshots)
+
+Muse has no usage API: on its VM, `subscription-status status` prints the limits as text. Muse parses that and
+pushes a snapshot to the tracker, where it appears as a subscription card with the weekly limit, its reset time
+and any additional tokens.
+
+1. On the tracker server, generate a token and set it in the environment: `openssl rand -hex 32`, then
+   `MUSE_INGEST_TOKEN=<token>`. The endpoint rejects every push while it is unset.
+2. Point Muse at `https://your-tracker/api/usage/muse` and send the token as `Authorization: Bearer <token>`.
+3. Muse pushes on its own schedule (every few hours is plenty for a weekly limit). The account **Muse** is
+   created automatically by the first accepted push; there is nothing to add in the UI.
+
+```sh
+curl -i https://your-tracker/api/usage/muse \
+  -H "Authorization: Bearer $MUSE_INGEST_TOKEN" -H "Content-Type: application/json" \
+  -d '{"source":"muse","recorded_at":"2026-11-15T23:36:00Z","plan":"free",
+       "weekly_limit":{"percent_used":12,"resets_at":"2026-11-20T13:53:00Z"},
+       "additional_tokens":{"percent_used":1,"tokens_remaining":1900000000}}'
+```
+
+Only `source` and `recorded_at` are required; a missing line is left out rather than sent as zero. Percentages
+are 0–100, times are UTC RFC 3339, and `tokens_remaining` is approximate (the source prints `1.9B`), so the
+dashboard labels it as approximate. Each push is appended as a new point; a repeated `(source, recorded_at)`
+returns `200` instead of storing a duplicate, a new point returns `201`, malformed JSON or values return `400`,
+and a missing or wrong token returns `401`.
+
 ### Subscriptions (OAuth)
 
 Click **Connect with sign-in**, open the sign-in page, approve access, and paste back:
@@ -213,7 +241,8 @@ Tokens only open this endpoint, not the UI.
 ```
 
 `GET /healthz` is unauthenticated, for container health checks. `POST /api/ingest` is used by push clients
-and authenticates with its own push token.
+and authenticates with its own push token. `POST /api/usage/muse` accepts Muse's usage snapshots and
+authenticates with `MUSE_INGEST_TOKEN`.
 
 ## Development
 
@@ -225,7 +254,7 @@ go test ./...
 ```
 main.go                     config, wiring, CLI commands (push, healthcheck, version)
 internal/providers/         one file per provider (anthropic_api, openai_api, openrouter, claude_sub, chatgpt_sub,
-                            opencode_console, opencode)
+                            opencode_console, opencode, muse)
 internal/push/              push client: local data readers (OpenCode) and the /api/ingest sender
 internal/poller/            periodic polling, token-refresh persistence
 internal/store/             SQLite schema and queries

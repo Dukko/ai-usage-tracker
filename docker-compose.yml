@@ -12,6 +12,7 @@ services:
       TRACKER_TRUST_PROXY: ${TRACKER_TRUST_PROXY:-false}
       TRACKER_PUBLIC_URL: ${TRACKER_PUBLIC_URL:-}
       TRACKER_POLL_INTERVAL: 10m
+      MUSE_INGEST_TOKEN: ${MUSE_INGEST_TOKEN:-}
       # TRACKER_SECRET_KEY: optional passphrase for encrypting stored credentials;
       # if unset, a random key is generated in /data/secret.key
     volumes:

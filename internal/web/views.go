@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Dukko/ai-usage-tracker/internal/core"
 	"github.com/Dukko/ai-usage-tracker/internal/providers"
 	"github.com/Dukko/ai-usage-tracker/internal/store"
 )
@@ -40,6 +41,8 @@ type accountView struct {
 	Kind          string // "sub", "api" or "push"
 	IsOAuth       bool
 	IsPush        bool
+	IsSub         bool // card shows limit windows instead of spend/tokens
+	IsSnapshot    bool // fed by a provider that pushes snapshots (Muse)
 	Badge         template.CSS
 	Initials      string
 	Quotas        []quotaView
@@ -70,6 +73,8 @@ func providerStyle(id string) (color, initials string) {
 		return "#5B5BD6", "OR"
 	case "opencode", "opencode-console":
 		return "#2563EB", "OC"
+	case "muse":
+		return "#6D28D9", "Mu"
 	}
 	return "#64748B", strings.ToUpper(id[:min(2, len(id))])
 }
@@ -130,9 +135,11 @@ func (s *Server) buildView(a store.Account, o viewOpts) (accountView, error) {
 		v.ProviderLabel = prov.Label()
 		switch prov.Kind() {
 		case providers.KindOAuth:
-			v.IsOAuth, v.Kind = true, "sub"
+			v.IsOAuth, v.IsSub, v.Kind = true, true, "sub"
 		case providers.KindPush:
 			v.IsPush, v.Kind = true, "push"
+		case providers.KindSnapshot:
+			v.IsPush, v.IsSub, v.IsSnapshot, v.Kind = true, true, true, "sub"
 		}
 	}
 	v.NeedsAction = a.LastError != ""
@@ -173,7 +180,7 @@ func (s *Server) buildView(a store.Account, o viewOpts) (accountView, error) {
 		}
 		v.Quotas = append(v.Quotas, qv)
 	}
-	if v.IsOAuth {
+	if v.IsSub {
 		return v, nil
 	}
 
@@ -619,19 +626,7 @@ func human(d time.Duration) string {
 	}
 }
 
-func tokens(n int64) string {
-	f := float64(n)
-	switch {
-	case f >= 1e9:
-		return fmt.Sprintf("%.2fB", f/1e9)
-	case f >= 1e6:
-		return fmt.Sprintf("%.1fM", f/1e6)
-	case f >= 1e3:
-		return fmt.Sprintf("%.1fk", f/1e3)
-	default:
-		return fmt.Sprintf("%d", n)
-	}
-}
+func tokens(n int64) string { return core.HumanTokens(n) }
 
 func money(f float64) string {
 	if f >= 1000 {

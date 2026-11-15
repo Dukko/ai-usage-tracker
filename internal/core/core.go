@@ -1,6 +1,8 @@
 // Package core holds the types shared by providers, storage and the web UI.
 package core
 
+import "fmt"
+
 // Credentials is everything needed to talk to a provider for one account.
 // It is stored encrypted at rest as JSON.
 type Credentials struct {
@@ -31,6 +33,34 @@ type DailyUsage struct {
 type DailyCost struct {
 	Day string
 	USD float64
+}
+
+// MuseSnapshot is one usage reading pushed by Muse. The pointer fields are
+// optional so a push can omit a line without that being stored as zero.
+type MuseSnapshot struct {
+	Source                    string
+	RecordedAt                int64 // unix seconds, when Muse took the reading
+	Plan                      string
+	WeeklyPercent             *float64
+	WeeklyResetsAt            int64 // unix seconds, 0 if unknown
+	AdditionalPercent         *float64
+	AdditionalTokensRemaining *int64
+	ReceivedAt                int64 // unix seconds, when the tracker stored it
+}
+
+// HumanTokens formats a token count like "1.90B" for display.
+func HumanTokens(n int64) string {
+	f := float64(n)
+	switch {
+	case f >= 1e9:
+		return fmt.Sprintf("%.2fB", f/1e9)
+	case f >= 1e6:
+		return fmt.Sprintf("%.1fM", f/1e6)
+	case f >= 1e3:
+		return fmt.Sprintf("%.1fk", f/1e3)
+	default:
+		return fmt.Sprintf("%d", n)
+	}
 }
 
 // Quota is one subscription rate-limit window (e.g. the 5-hour or weekly limit).

@@ -47,6 +47,7 @@ type Config struct {
 	AdminUser     string // username for the admin created from AdminPassword
 	AdminPassword string // TRACKER_PASSWORD: creates the first admin if there are no users
 	TrustProxy    bool   // trust CF-Connecting-IP / X-Forwarded-* headers
+	MuseToken     string // MUSE_INGEST_TOKEN: bearer token for POST /api/usage/muse
 }
 
 type Server struct {
@@ -55,6 +56,7 @@ type Server struct {
 	pl         *poller.Poller
 	publicURL  string
 	trustProxy bool
+	museToken  string
 	pages      map[string]*template.Template
 	lim        *limiter
 	set        atomic.Pointer[store.Settings]
@@ -70,7 +72,11 @@ var pageNames = []string{"dashboard", "accounts", "new", "oauth", "account", "pu
 
 func New(st *store.Store, box *secrets.Box, pl *poller.Poller, cfg Config) (http.Handler, error) {
 	s := &Server{st: st, box: box, pl: pl, pages: map[string]*template.Template{}, pending: map[string]pending{},
-		publicURL: strings.TrimRight(os.Getenv("TRACKER_PUBLIC_URL"), "/"), trustProxy: cfg.TrustProxy, lim: newLimiter()}
+		publicURL: strings.TrimRight(os.Getenv("TRACKER_PUBLIC_URL"), "/"), trustProxy: cfg.TrustProxy,
+		museToken: strings.TrimSpace(cfg.MuseToken), lim: newLimiter()}
+	if s.museToken == "" {
+		slog.Warn("MUSE_INGEST_TOKEN is not set: POST /api/usage/muse will reject pushes")
+	}
 	set, err := st.GetSettings()
 	if err != nil {
 		return nil, err
@@ -147,6 +153,7 @@ func New(st *store.Store, box *secrets.Box, pl *poller.Poller, cfg Config) (http
 
 	mux.HandleFunc("GET /api/accounts", s.apiAccounts)
 	mux.HandleFunc("POST /api/ingest", s.ingest)
+	mux.HandleFunc("POST /api/usage/muse", s.museIngest)
 
 	go s.pruneSessions()
 	return securityHeaders(http.NewCrossOriginProtection().Handler(s.authenticate(mux))), nil
@@ -360,7 +367,7 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 				p.Closest = &closest{Pct: qv.UsedPercent, Level: qv.Level, Account: a.Name, Window: qv.Label, Reset: qv.ResetsIn}
 			}
 		}
-		if v.IsOAuth {
+		if v.IsSub {
 			p.Subs = append(p.Subs, v)
 			continue
 		}
@@ -441,14 +448,18 @@ func (s *Server) accountDetail(w http.ResponseWriter, r *http.Request) {
 	p := accountPage{accountView: v, CanEdit: me(r).IsAdmin(), Interval: everyLabel(s.pl.Interval()), Warn: s.settings().Warn}
 	switch v.Kind {
 	case "sub":
-		p.CredLabel = "Subscription sign-in (OAuth)"
+		if v.IsSnapshot {
+			p.CredLabel = "Pushed by Muse with MUSE_INGEST_TOKEN"
+		} else {
+			p.CredLabel = "Subscription sign-in (OAuth)"
+		}
 	case "push":
 		p.CredLabel = "Push token, sent from your machine"
 	default:
 		p.CredLabel = "API key"
 	}
 
-	if v.IsOAuth {
+	if v.IsSub {
 		top := 0.0
 		var topLabel string
 		for _, q := range v.Quotas {
@@ -462,8 +473,12 @@ func (s *Server) accountDetail(w http.ResponseWriter, r *http.Request) {
 		if a.Plan != "" {
 			p.Tiles = append(p.Tiles, tile{"Plan", upperFirst(a.Plan), v.ProviderLabel, ""})
 		}
+		last, every := "Last check", p.Interval
+		if v.IsSnapshot {
+			last, every = "Last push", "from Muse"
+		}
 		p.Tiles = append(p.Tiles, tile{"Limit windows", strconv.Itoa(len(v.Quotas)), "tracked", ""},
-			tile{"Last check", ago(a.LastPoll), p.Interval, ""})
+			tile{last, ago(a.LastPoll), every, ""})
 		s.render(w, r, "account", a.Name, "accounts", p)
 		return
 	}
@@ -777,7 +792,7 @@ func (s *Server) apiAccounts(w http.ResponseWriter, r *http.Request) {
 		for _, q := range v.Quotas {
 			item.Quotas = append(item.Quotas, apiQuota{Window: q.Window, UsedPercent: q.UsedPercent, ResetsAt: q.ResetsAt, Detail: q.Detail})
 		}
-		if !v.IsOAuth {
+		if !v.IsSub {
 			item.CostToday, item.Cost30d, item.Tokens30d = &v.CostToday, &v.CostRange, &v.TokensRange
 		}
 		out = append(out, item)
